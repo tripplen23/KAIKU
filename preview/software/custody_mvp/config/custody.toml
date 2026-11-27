@@ -1,0 +1,95 @@
+# Configuracion de Custody. Todo lo que es una ruta, un area o un limite de
+# red vive aqui, no dentro del codigo.
+#
+# Se lee con custody/paths.py. Cualquier valor se puede pisar con una variable
+# de entorno CUSTODY_<SECCION>_<CLAVE> en mayusculas, para no tener que editar
+# el fichero en un contenedor o en CI.
+
+[aoi]
+# minlon, minlat, maxlon, maxlat. El Baltico entero.
+bbox = [9.0, 53.5, 30.5, 66.0]
+name = "Baltic Sea"
+
+
+# -------------------------------------------------------------------- rutas
+#
+# TRES CATEGORIAS, NO DOS, Y LA DIFERENCIA ES QUE SE PIERDE AL BORRARLAS.
+#
+#   cache    Funcion pura de una fuente externa. Reproducible pidiendola otra
+#            vez. Borrarla cuesta TIEMPO y ancho de banda, nunca informacion.
+#            Tiene TTL, se puede vaciar sin pensarlo, no se respalda.
+#
+#   data     Funcion pura de (cache + codigo + config). Es la salida del
+#            build. Borrarla cuesta un build. Tampoco se respalda: se
+#            reconstruye. Va atada a la version del codigo que la produjo.
+#
+#   record   Observacion primaria. NO es funcion de nada: son los mensajes
+#            AIS que nuestros receptores oyeron a una hora concreta. Nadie
+#            puede volver a grabar el 10 de noviembre de 2026. Borrarla
+#            pierde informacion para siempre.
+#            ES LA UNICA DE LAS TRES QUE HAY QUE RESPALDAR.
+#
+# Por eso estan separadas y por eso `record` apunta fuera del arbol del
+# proyecto: para que un `rm -rf` de la carpeta de trabajo no se la lleve.
+
+[paths]
+# TODOS los datos viven en UN sitio, `~/Documents/space_startup_datos/`, y
+# ninguno dentro del repo. La division ya no es por recuperabilidad --eso
+# decidia donde iba cada uno cuando el criterio era que sincronizaba
+# Dropbox-- sino por naturaleza: el repo es codigo y texto, `_datos` es dato.
+# Asi una carpeta se puede versionar o devolver a la nube entera, y la otra se
+# excluye entera, sin ir fichero por fichero.
+#
+#   space_startup_datos/
+#     ais_record/        <- ESTE es el irreemplazable (91 MB)
+#     gnss_leo_record/   <- extractos y manifiestos (110 MB), regenerables
+#     gnss_leo/          <- bruto descargado (2,4 GB), re-descargable
+#     custody/           <- teselas y salida del build (2,2 GB), regenerables
+#
+# Desde el 2026-11-24 nada de esto se sincroniza a ninguna nube. De los
+# cuatro, `ais_record` es el unico que nadie puede volver a capturar: es el
+# unico que hay que respaldar a mano.
+
+# Irrecuperable. Observacion primaria: los mensajes AIS que nuestros
+# receptores oyeron a una hora concreta. SIN respaldo desde el 2026-11-24.
+record = "~/Documents/space_startup_datos/ais_record"
+
+# Reproducibles: si se borran, se vuelven a pedir.
+cache  = "~/Documents/space_startup_datos/custody/cache"    # 1,9 GB · teselas, GeoTIFF, JSON
+data   = "~/Documents/space_startup_datos/custody/data"     # 56 MB · salida del build
+
+secrets = "secrets.env"
+
+# UN ALMACEN. `record` de arriba es la unica respuesta a «donde estan los
+# datos», y la lee tambien la grabadora (ais_recorder/recorder.py), para que
+# escritor y lector no puedan discrepar.
+#
+# Antes habia aqui `record_fallbacks`: sitios donde BUSCAR si el principal no
+# estaba. Parece prudente y no lo es: convierte un error de configuracion en
+# silencio. El 2026-11-13 la grabadora se reinicio contra ~/ais_data mientras
+# el principal seguia existiendo, y 4,6 h de grabacion quedaron fuera de la
+# vista sin un solo error en el log.
+
+# Para montar un archivo historico de SOLO LECTURA junto al actual. Vacia
+# salvo que de verdad haya dos almacenes que deban convivir.
+record_extra = []
+
+# Sitios donde la grabadora ha vivido antes. NO se leen: se vigilan. Si
+# aparece grabacion ahi, la aplicacion avisa y dice como fusionarla, en vez
+# de leerla por detras como si fuera normal.
+record_watch = ["~/ais_data", "../ais_recorder/data",
+                "~/Documents/space_startup/ais_record",
+                "~/Dropbox/2026/space_startup/ais_record"]
+
+
+[cache]
+# Segundos. Un catalogo STAC cambia; una linea de costa no.
+ttl_stac = 21600
+ttl_geo  = 2592000
+ttl_tile = 0                # 0 = sin caducidad
+
+
+[build]
+depth_step = 0.03           # grados, rejilla de trabajo de batimetria
+viewer_depth_step = 0.06    # la que se envia al navegador
+isobaths_m = [20.0, 50.0, 80.0, 100.0]

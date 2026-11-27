@@ -1,0 +1,8 @@
+# Lo de arriba, más lo que sólo usan los tests.
+-r requirements.txt
+
+# El decodificador Hatanaka de referencia (en C) contra el que se comprueba el
+# nuestro: gnss_leo_recorder/tests/. El grabador en sí no lo necesita.
+hatanaka==2.8.1
+importlib_resources==7.1.0
+ncompress==1.0.2

@@ -1,0 +1,257 @@
+# Registro de licencias. Una entrada por fuente que entra en el producto.
+#
+# POR QUE EXISTE ESTE FICHERO.
+#
+# El 13-11-2026 se integraron las isobatas de HELCOM (capa 14) sin leer sus
+# condiciones de uso. Dicen, literalmente: «available for scientific research
+# only [...] Any commercial use is prohibited». Custody es un producto que se
+# vende. Estuvieron dentro durante una tarde.
+#
+# El fallo no fue de criterio, fue de proceso: no habia ningun sitio donde
+# constara la licencia de cada fuente, asi que nadie podia notar que faltaba
+# comprobarla. Ahora el build falla si una capa cita una fuente que no esta
+# aqui o que esta marcada como no comercial.
+#
+# commercial = false  ->  NO puede entrar en el producto. Sirve para validar
+#                         contra ella, para una captura en la tesis, o para
+#                         citarla como lo que existe y no se puede usar.
+
+[fintraffic_ais]
+name = "Fintraffic / digitraffic.fi — AIS"
+licence = "CC BY 4.0"
+commercial = true
+attribution = "Fintraffic / digitraffic.fi, CC BY 4.0"
+checked = "2026-11-13"
+
+[emodnet_dtm]
+name = "EMODnet Bathymetry — Digital Terrain Model"
+licence = "CC BY 4.0"
+commercial = true
+attribution = "EMODnet Bathymetry Consortium — EMODnet Digital Bathymetry (DTM)"
+# Condicion que SI aplica y hay que respetar: no es carta nautica.
+conditions = "DO NOT USE FOR NAVIGATION. Custody is surveillance, not navigation: it never advises a course, a depth under keel or a route."
+used_for = ["depth grid", "depth map", "isobaths 20/50/80/100 m"]
+checked = "2026-11-13"
+
+[helcom_coastline]
+name = "HELCOM — Coastline (MADS/Background layer 13)"
+licence = "free use with citation"
+commercial = true
+attribution = "HELCOM, OpenStreetMap"
+quote = "This data set can be used freely given that the source is cited (HELCOM, OpenStreetMap)."
+used_for = ["coastline", "IND-03 coastal suppression index"]
+checked = "2026-11-13"
+
+[helcom_subbasins]
+name = "HELCOM — subbasins level 2 (HOLAS assessment units)"
+licence = "free use with citation"
+commercial = true
+attribution = "HELCOM"
+quote = "Data can be used freely given that the source (HELCOM) is cited."
+used_for = ["basin focus", "basin classification"]
+checked = "2026-11-13"
+
+[helcom_human_activities]
+name = "EMODnet Human Activities / HELCOM — munitions, wrecks, defence areas"
+licence = "EMODnet terms, open with attribution"
+commercial = true
+attribution = "EMODnet Human Activities · HELCOM"
+checked = "2026-11-13"
+
+[osm]
+name = "OpenStreetMap — subsea cables and pipelines"
+licence = "ODbL 1.0"
+commercial = true
+attribution = "© OpenStreetMap contributors, ODbL"
+conditions = "Share-alike applies to derived DATABASES. Custody publishes alerts and indicators, not a derived cable database; if a cable layer is ever redistributed as data, ODbL attaches."
+checked = "2026-11-13"
+
+[vayla]
+name = "Väylävirasto — navigation restrictions, anchoring bans"
+licence = "CC BY 4.0"
+commercial = true
+attribution = "Väylävirasto, CC BY 4.0"
+checked = "2026-11-13"
+
+[copernicus]
+name = "Copernicus Sentinel-1 / Sentinel-2"
+licence = "Copernicus open and free data policy"
+commercial = true
+attribution = "Contains modified Copernicus Sentinel data"
+checked = "2026-11-13"
+
+# ----------------------------------------------- NO pueden entrar al producto
+
+[helcom_depth_contours]
+name = "HELCOM — Depth contours (MADS/Background layer 14)"
+licence = "scientific research only"
+commercial = false
+quote = "These data sets are a piece of scientific work which relies on free interchange of scientific data. Therefore the data are available for scientific research only. The data must not be used for navigation. Any commercial use is prohibited."
+reason = "Integrated 2026-11-13 and removed the same day. Replaced by isobaths derived from the EMODnet DTM, which is CC BY 4.0. EMODnet's own published contours were not enough: they start at 50 m and the 20 m level is the one that decides whether an anchor reaches the bed."
+checked = "2026-11-13"
+
+[bsbd]
+name = "Baltic Sea Bathymetry Database (BSBD)"
+licence = "see http://data.bshc.pro/legal/"
+commercial = false
+reason = "Source behind HELCOM layer 14. Prohibits use for safety of navigation, route planning and ECDIS."
+checked = "2026-11-13"
+
+# ------------------------------------------------- dossier de buques
+
+[ofac_sdn]
+name = "US Treasury OFAC — Specially Designated Nationals list"
+licence = "US Government work, public domain"
+commercial = true
+attribution = "US Department of the Treasury, OFAC SDN list"
+used_for = ["vessel sanctions flag"]
+checked = "2026-11-13"
+
+[eu_fsf]
+name = "EU Financial Sanctions Files (FSF)"
+licence = "EU open data, reuse permitted with attribution"
+commercial = true
+attribution = "European Commission, EU Financial Sanctions Files"
+used_for = ["vessel sanctions flag"]
+checked = "2026-11-13"
+
+[wikidata]
+name = "Wikidata — vessel IMO, tonnage, build year"
+licence = "CC0 1.0"
+commercial = true
+attribution = "Wikidata (CC0)"
+used_for = ["vessel dossier"]
+checked = "2026-11-13"
+
+[wikimedia_commons]
+name = "Wikimedia Commons — vessel photographs"
+licence = "per file; varies"
+commercial = true
+attribution = "per image: author, licence and source, as given on the file page"
+# Esta es la unica entrada donde la licencia NO es uniforme, y conviene que
+# quede escrito. Commons es un contenedor, no una licencia: cada foto lleva la
+# suya --CC BY, CC BY-SA, dominio publico-- y la mayoria exige nombrar al
+# autor. Ponerlas en un producto sin esa linea por imagen incumple, aunque
+# Commons en conjunto sea libre.
+conditions = "Commons is a container, not a licence. Each photo carries its own terms and most require naming the author. The viewer must show author + licence next to every image it displays, taken from the file page, not a blanket 'Wikimedia Commons' credit."
+used_for = ["vessel photograph"]
+checked = "2026-11-13"
+
+[gfw]
+name = "Global Fishing Watch — behaviour events and activity grid"
+licence = "CC BY-SA 4.0"
+commercial = true
+attribution = "Global Fishing Watch, CC BY-SA 4.0"
+# Share-alike: si se redistribuye un producto DERIVADO de este dato, hereda
+# la licencia. Se usa como corroboracion, no como capa base.
+conditions = "Share-alike. Used as corroboration of our own indicators, never as the basis of a redistributed dataset."
+used_for = ["alert corroboration"]
+checked = "2026-11-13"
+
+# ----------------------------------------------------- forzamiento y cobertura
+
+[copernicus_marine]
+name = "E.U. Copernicus Marine Service — Baltic physics, waves and reanalysis"
+licence = "Copernicus Marine free and open, attribution required"
+commercial = true
+attribution = "E.U. Copernicus Marine Service Information"
+# Verificado el 2026-11-13: el WMTS responde SIN credenciales. El acceso al
+# dato crudo (OPeNDAP, la toolbox) SI exige cuenta. Se pintan las capas; los
+# numeros crudos no se extraen.
+conditions = "WMTS tiles need no credentials; raw data access via OPeNDAP does. Surface current direction carries 87 deg RMS error against seven moorings: usable to say 'there was a current', not to compute a drift. That limit is shown in the layer, not in a footnote."
+used_for = ["currents", "waves", "sea ice", "reanalysis for incident reconstruction"]
+products = ["BALTICSEA_ANALYSISFORECAST_PHY_003_006",
+            "BALTICSEA_ANALYSISFORECAST_WAV_003_010",
+            "BALTICSEA_MULTIYEAR_PHY_003_011"]
+checked = "2026-11-13"
+
+[aishub]
+name = "AISHub — receiver stations and aggregated feed"
+licence = "station list public; aggregated feed by membership"
+commercial = true
+attribution = "Data: AISHub contributors (https://www.aishub.net)"
+# LA RESTRICCION QUE IMPORTA, y que decide como se puede usar el cliente que
+# ya esta escrito: el agregado se puede USAR, no redistribuir. O sea: puede
+# alimentar nuestras alertas, no puede salir por una API nuestra.
+#
+# Estado el 2026-11-13: SIN CLAVE. La API devuelve 200 con cero bytes tanto
+# sin usuario como con uno inventado. La clave exige un receptor propio
+# aprobado, asi que no hay forma de rodearlo. El cliente esta completo y
+# enchufado al motor en vivo; el dia que haya clave es una linea en
+# secrets.env (AISHUB_USERNAME) y entra sola.
+conditions = "REDISTRIBUTION OF THE VESSEL FEED IS PROHIBITED, free or paid. It may feed our own alerts; it may not be re-served through an API of ours. Rate limit is one request per minute, enforced client-side. Only the public station export is in use today."
+used_for = ["coverage gap map", "second AIS source in the live engine, once keyed"]
+key_env = "AISHUB_USERNAME"
+checked = "2026-11-13"
+
+[kystverket]
+name = "Kystverket / BarentsWatch — Norwegian AIS"
+licence = "NLOD (Norwegian Licence for Open Government Data)"
+commercial = true
+attribution = "Kystverket, NLOD"
+# NO SE USA TODAVIA, y conviene que conste por que.
+conditions = "Covers the Norwegian economic zone and the Svalbard and Jan Mayen protection zones, NOT the Baltic. EXCLUDES fishing vessels under 15 m and recreational craft under 45 m, so absence of a small vessel there is not evidence it was not present. The live feed goes through BarentsWatch and needs a registered client; the open NMEA stream at 153.44.253.27:5631 did not answer on 2026-11-13."
+used_for = []
+checked = "2026-11-13"
+
+[aisstream]
+name = "aisstream.io"
+licence = "none published"
+commercial = false
+reason = "No licence, no terms of redistribution, and no station list, so its coverage cannot be verified. 'StandardSearchAndRescueAircraftReport' is AIS message type 9 — a search and rescue AIRCRAFT — not Synthetic Aperture Radar; the initials coincide and nothing else. A service with no written terms is unusable both for a thesis that must cite provenance and for a product that must know what it may redistribute."
+checked = "2026-11-13"
+
+[fmi]
+name = "Finnish Meteorological Institute — open data (WAM wave model, HARMONIE wind)"
+licence = "CC BY 4.0"
+commercial = true
+attribution = "Finnish Meteorological Institute open data, CC BY 4.0"
+# FMI no es un proxy de Copernicus para esto: WAM y HARMONIE son modelos
+# propios. Da VIENTO, que Copernicus Marine no publica por no ser variable
+# marina. Son complementarios, no duplicados.
+conditions = "No key, no registration. Wave buoys return NaN from November (withdrawn before the ice season), so the WAM model is the primary source and the buoys seasonal validation only. A point outside the useful grid returns NaN with HTTP 200, so absence must be checked, not assumed from the status code."
+used_for = ["IND-02 drift_explained", "wind and wave at an alert"]
+checked = "2026-11-13"
+
+[emodnet_human_activities]
+name = "EMODnet Human Activities"
+url = "https://emodnet.ec.europa.eu/en/human-activities"
+licence = "CC BY 4.0"
+commercial = true
+attribution = "EMODnet Human Activities; vessel density by Cogea from AIS purchased from CLS, ORBCOMM and vesseltracker.com; route density by EMSA"
+note = """Vessel density and route density rasters (1 km), plus the official EU
+aggregation of submarine cables, pipelines and wind farms. EMODnet's terms:
+products created by EMODnet are owned by the EU and licensed CC-BY 4.0 unless
+stated otherwise, free for commercial and non-commercial use. The catalogue
+record for vessel density requires acknowledging BOTH EMODnet Human Activities
+AND CLS -- the AIS behind it was purchased, so the attribution is not optional.
+Route density was built by EMSA. Checked 2026-11-13."""
+
+[gnss_finland]
+name = "GNSS-Finland (Finnish Geospatial Research Institute)"
+url = "https://gnss-finland.nls.fi"
+licence = "none published"
+commercial = false
+ask_before_selling = true
+ask_contact = "Finnish Geospatial Research Institute / National Land Survey"
+attribution = "GNSS-Finland, Finnish Geospatial Research Institute, commissioned by Traficom"
+note = """Signal quality at the 47 FinnRef reference stations, live, no
+credentials. The National Land Survey page says the service "can be used by
+anyone" and publishes no terms at all, so this is registered as NO LICENCE
+DECLARED: draw it, cite it, do not resell it until they answer. Write to the
+institute before anything commercial. Checked 2026-11-14."""
+
+[gpsjam]
+name = "GPSJAM (John Wiseman)"
+url = "https://gpsjam.org"
+licence = "none published"
+commercial = false
+ask_before_selling = true
+ask_contact = "John Wiseman (gpsjam.org) AND ADS-B Exchange terms"
+attribution = "gpsjam.org (John Wiseman), from airplanes.live and ADS-B Exchange"
+note = """Daily GPS interference maps derived from the accuracy aircraft declare
+over the air. Neither the front page nor the about page states a licence;
+secondary sources say CC BY but the site itself says nothing, and the
+underlying reports come from ADS-B Exchange, which has its own terms. Two
+parties to ask, so it is registered as NO LICENCE DECLARED. Checked
+2026-11-14."""

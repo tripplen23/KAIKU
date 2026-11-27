@@ -1,0 +1,19 @@
+# Installed as ~/.config/systemd/user/gnss-leo-recorder.service (see ../MANUAL.md Part 0-bis)
+[Unit]
+Description=GNSS-from-orbit recorder (Spire/NOAA, Swarm, Sentinel-6)
+Documentation=file://%h/Documents/space_startup/proyecto_telescopio_geo/software/MANUAL.md
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/space_startup/proyecto_telescopio_geo/software/gnss_leo_recorder
+# -I: isolated mode, it reads untrusted downloads
+ExecStart=/usr/bin/python3 -I -u %h/Documents/space_startup/proyecto_telescopio_geo/software/gnss_leo_recorder/gnss_leo.py
+Restart=always
+RestartSec=60
+# SIGTERM finishes the current file; extraction of a Spire day takes ~30 s
+TimeoutStopSec=180
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

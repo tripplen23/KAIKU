@@ -1,0 +1,13 @@
+LEO-SSO-600    a=   6978.1 e=0.0000 i= 97.79 T=  1.611 h  hp=   600.0 ha=   600.0 dRAAN= +0.986 deg/dia dargp= -3.303 deg/dia
+LEO-SSO-500    a=   6878.1 e=0.0000 i= 97.40 T=  1.577 h  hp=   500.0 ha=   500.0 dRAAN= +0.986 deg/dia dargp= -3.508 deg/dia
+LEO-SSO-700    a=   7078.1 e=0.0000 i= 98.19 T=  1.646 h  hp=   700.0 ha=   700.0 dRAAN= +0.986 deg/dia dargp= -3.109 deg/dia
+LEO-ALTA-2000  a=   8378.1 e=0.0000 i= 63.43 T=  2.120 h  hp=  2000.0 ha=  2000.0 dRAAN= -1.715 deg/dia dargp= -0.000 deg/dia
+MEO-8000       a=  14378.1 e=0.0000 i= 63.43 T=  4.766 h  hp=  8000.0 ha=  8000.0 dRAAN= -0.259 deg/dia dargp= -0.000 deg/dia
+MEO-20000      a=  26378.1 e=0.0000 i= 63.43 T= 11.843 h  hp= 20000.0 ha= 20000.0 dRAAN= -0.031 deg/dia dargp= -0.000 deg/dia
+GEO-25E        a=  42164.2 e=0.0000 i=  0.00 T= 23.934 h  hp= 35786.0 ha= 35786.0 dRAAN= -0.013 deg/dia dargp= +0.027 deg/dia
+GEO-0E         a=  42164.2 e=0.0000 i=  0.00 T= 23.934 h  hp= 35786.0 ha= 35786.0 dRAAN= -0.013 deg/dia dargp= +0.027 deg/dia
+MOLNIYA        a=  26561.8 e=0.7373 i= 63.43 T= 11.967 h  hp=   600.0 ha= 39767.3 dRAAN= -0.145 deg/dia dargp= -0.000 deg/dia
+TUNDRA         a=  42164.2 e=0.2500 i= 63.43 T= 23.934 h  hp= 25245.0 ha= 46327.1 dRAAN= -0.007 deg/dia dargp= -0.000 deg/dia
+TUNDRA-e20     a=  42164.2 e=0.2000 i= 63.43 T= 23.934 h  hp= 27353.2 ha= 44218.9 dRAAN= -0.007 deg/dia dargp= -0.000 deg/dia
+TUNDRA-e30     a=  42164.2 e=0.3000 i= 63.43 T= 23.934 h  hp= 23136.8 ha= 48435.3 dRAAN= -0.007 deg/dia dargp= -0.000 deg/dia
+TAP-ASBM       a=  32178.1 e=0.5501 i= 65.00 T= 15.957 h  hp=  8100.0 ha= 43500.0 dRAAN= -0.030 deg/dia dargp= -0.004 deg/dia
