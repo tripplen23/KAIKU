@@ -1,0 +1,83 @@
+# gnss_leo_recorder configuration. Usage: ../MANUAL.md Part 0-bis. Architecture: README.md.
+# `~` is expanded. GNSS_LEO_RAW / GNSS_LEO_EXTRACT / GNSS_LEO_CONFIG override.
+
+[store]
+raw_root = "~/Documents/space_startup_datos/gnss_leo"           # bulk, reproducible: re-downloadable
+extract_root = "~/Documents/space_startup_datos/gnss_leo_record"      # small, irreplaceable. NOT synced since 2026-11-24
+min_free_gb = 15.0          # below this, raw downloads stop (loudly). Nothing is ever deleted.
+history_start = "2026-11-09"  # every day from here on is fetched and kept
+user_agent = "gnss-leo-recorder/1.0 (research prototype)"
+
+[extract]
+global_decimate_s = 10   # global series: one epoch per receiver per 10 s (0.1 Hz), everywhere; 0 = off
+
+# Sub-satellite point boxes. An epoch outside every box is counted, not stored.
+[regions.baltic]
+lat = [50.0, 72.0]
+lon = [5.0, 50.0]      # Baltic, Gulf of Finland, Kaliningrad, St Petersburg
+
+[regions.control]
+lat = [50.0, 72.0]
+lon = [-130.0, -60.0]  # same latitudes over Canada, no known interference
+
+[sources.spire_ucar]
+enabled = true
+poll_minutes = 60
+lookback_days = 10
+base_url = "https://data.cosmic.ucar.edu/gnss-ro/spire/noaa/nrt"
+# add "level1a/leoAtt" for attitude (~80 MB/day); not parsed yet
+products = ["level1a/podCrx", "level1b/leoOrb"]
+stale_after_days = 3   # day D is normally out on D+1: warn in the log if nothing newer arrives
+stale_note = "NOAA's current order (delivery order 6) delivers from 2026-09-18 to 2026-12-01; whether UCAR keeps publishing after it, and under which licence, is [VERIFICAR] (canal/iteracion_06/07_compliance.md A)."
+licence = "Spire Data Products, UCAR COSMIC Program, doi:10.5065/1a8d-yh72: free access, subject to UCAR terms of use. Bought by NOAA (RODB-II Delivery Order 5) with 'unlimited distribution rights ... no restrictions on their use or further distribution' [VERIFICAR: that this covers the navigation-receiver files - Compliance]"
+terms_url = "https://www.ucar.edu/terms-of-use/data ; https://space.commerce.gov/noaa-announces-commercial-data-purchase-delivery-order-5/"
+
+[sources.swarm_esa]
+enabled = true
+poll_minutes = 180
+lookback_days = 14
+satellites = ["A", "B", "C"]
+base_url = "https://swarm-diss.eo.esa.int"
+licence = "ESA Swarm data, ESA Earth Observation data policy: free, for scientific, public-good or commercial use, under the ESA terms and conditions; credit ESA. Redistribution of the raw files needs ESA permission [VERIFICAR - Compliance]"
+terms_url = "https://earth.esa.int/eogateway/terms-and-conditions ; https://earth.esa.int/eogateway/documents/d/earth-online/esa-eo-data-policy"
+
+[sources.sentinel6_eum]
+enabled = true   # still needs credentials: without them it stays off and says so
+poll_minutes = 30
+lookback_days = 3
+satellites = ["Sentinel-6A", "Sentinel-6B"]
+collection = "EO:EUM:DAT:0274"
+product_type = "GN_1B_RNXH_AX"
+search_url = "https://api.eumetsat.int/data/search-products/1.0.0/os"
+token_url = "https://api.eumetsat.int/token"
+credentials_file = "~/.config/gnss_leo_recorder/eumetsat.toml"
+orbit_url = "https://edc.dgfi.tum.de/pub/slr/cpf_predicts_v2"
+licence = "Copernicus Sentinel-6 data (EUMETSAT): Copernicus free, full and open data policy, Commission Delegated Regulation (EU) No 1159/2013; credit 'Contains modified Copernicus Sentinel data [year]'"
+terms_url = "https://user.eumetsat.int/s3/eup-strapi-media/Copernicus_Data_Usage_Terms_and_Condition_05ee8142ce.pdf"
+orbit_licence = "ILRS consolidated prediction (CPF) issued by EUMETSAT, served by EDC/DGFI-TUM without registration. No licence text published on either site (pages saved 2026-11-20): silence, not permission - ask before selling [VERIFICAR - Compliance]"
+orbit_terms_url = "https://ilrs.gsfc.nasa.gov/data_and_products/predictions/index.html ; https://edc.dgfi.tum.de/en/terms/"
+
+# Orbits of the navigation satellites, to compute their elevation from the receiver (CTO).
+[sources.igs_orbits]
+enabled = true
+poll_minutes = 360
+lookback_days = 10
+products = [
+  { name = "IGS0OPSRAP_{yyyy}{ddd}0000_01D_15M_ORB.SP3.gz", dir = "https://igs.bkg.bund.de/root_ftp/IGS/products/{week}/" },
+  { name = "GFZ0OPSRAP_{yyyy}{ddd}0000_01D_05M_ORB.SP3.gz", dir = "https://isdc-data.gfz.de/gnss/products/rapid/w{week}/" },
+]
+licence = "IGS data and products: 'openly available for use without restriction ... free of cost or obligation'; users agree to cite and attribute IGS and the providers (IGS Disclaimer and Terms of Use, 2020-08-05). GFZ rapid is GFZ's IGS analysis-centre product, served by GFZ ISDC; its own terms not found [VERIFICAR - Compliance]"
+terms_url = "https://igs.org/wp-content/uploads/2020/09/IGS-Data-and-Product-Disclaimer-and-Terms-of-Use-200805.pdf ; https://isdc.gfz.de/gnss-products/"
+
+# External reference: DTU's interference map, captured nightly (CTO).
+[sources.satjam]
+enabled = true
+poll_minutes = 60
+lookback_days = 0
+after_utc_hour = 4     # capture once a UTC day, after DTU's nightly update
+base_url = "https://sat-jam.com"
+files = ["gnss_S1C_GPS_30d.json", "gnss_S1C_Galileo_30d.json", "gnss_S1D_GPS_30d.json",
+         "gnss_S1D_Galileo_30d.json", "gnss_S2B_GPS_30d.json", "gnss_S2C_GPS_30d.json",
+         "gnss_S2C_Galileo_30d.json", "gnss_S3A_GPS_30d.json", "gnss_S3B_GPS_30d.json"]
+licence = "SAT-JAM, K. Bostani Nezhad (DTU): 'a research product made available to the public free-of-charge', not for navigation or safety-critical decisions; contains modified Copernicus Sentinel data 2026. No licence published: cite 'Bostani Nezhad, K. (2026). SAT-JAM: Satellite GNSS Interference Map. https://sat-jam.com'; internal reference only, ask DTU before redistributing or selling [VERIFICAR - Compliance]"
+terms_url = "https://sat-jam.com/"

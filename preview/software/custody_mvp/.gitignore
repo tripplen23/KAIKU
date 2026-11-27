@@ -1,0 +1,8 @@
+cache/
+viewer/data/quicklooks/
+cdse_credentials.local.json
+__pycache__/
+secrets.env
+cdse_credentials.json
+.serve.*.pid
+.serve.*.log

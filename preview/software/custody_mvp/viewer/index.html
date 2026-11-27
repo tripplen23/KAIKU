@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Custody</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<nav id="activitybar" aria-label="sections">
+    <button data-tab="alerts" title="Alerts" aria-label="Alerts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6c0 4-1.5 5.5-2 6h16c-.5-.5-2-2-2-6a6 6 0 0 0-6-6z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg><span class="rail-lbl" data-i18n="tab_alerts">Alerts</span></button>
+    <button data-tab="vessels" title="Vessels" aria-label="Vessels"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18l1.8-6.2a1 1 0 0 1 .96-.72h12.48a1 1 0 0 1 .96.72L21 18"/><path d="M6 11V6h12v5"/><path d="M12 3v3"/><path d="M2 21c1.5 0 1.5-1.2 3-1.2S6.5 21 8 21s1.5-1.2 3-1.2S12.5 21 14 21s1.5-1.2 3-1.2S18.5 21 20 21"/></svg><span class="rail-lbl" data-i18n="tab_vessels">Vessels</span></button>
+    <button data-tab="learn" title="Learn" aria-label="Learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z"/></svg><span class="rail-lbl" data-i18n="tab_learn">Learn</span></button>
+    <button data-tab="filters" title="Filters" aria-label="Filters"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg><span class="rail-lbl" data-i18n="tab_filters">Filters</span></button>
+    <button data-tab="layers" title="Layers" aria-label="Layers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span class="rail-lbl" data-i18n="tab_layers">Layers</span></button>
+    <button data-tab="sources" title="Sources" aria-label="Sources"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg><span class="rail-lbl" data-i18n="tab_sources">Sources</span></button>
+    <div class="rail-gap"></div>
+    <button data-tab="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.6 1.6 0 0 0 15 19.4a1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 9 4.6a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.6 1.6 0 0 0 19.4 9v.1a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span class="rail-lbl" data-i18n="tab_settings">Settings</span></button>
+  </nav>
+
+<aside id="panel">
+  <header>
+    <div class="hdr-row">
+      <h2 id="section-title">Alerts</h2>
+      <button class="xbtn" id="panel-hide" title="Hide sidebar (Ctrl+B)"
+              aria-label="hide sidebar">&#x2039;</button>
+    </div>
+    <h1 id="brand">Custody</h1>
+    <div class="sub" id="tagline"></div>
+    <div class="sub mono" id="built">loading…</div>
+  </header>
+
+
+  <section id="tab-alerts" class="tab on">
+    <div id="list-view">
+      <div id="alertbar"></div>
+      <div id="live-alerts" class="note"></div>
+      <div class="sortbar">
+        <label for="alert-sort" data-i18n="sort_by">Sort by</label>
+        <select id="alert-sort"></select>
+      </div>
+      <div id="alert-count" class="count"></div>
+      <div id="alert-list"></div>
+    </div>
+    <div id="detail"></div>
+  </section>
+
+  <section id="tab-vessels" class="tab">
+    <div id="vessels"></div>
+  </section>
+
+  <section id="tab-learn" class="tab">
+    <div id="learn"></div>
+  </section>
+
+  <section id="tab-filters" class="tab">
+    <h3 data-i18n="filters_h">Detection filters</h3>
+    <div id="filters"></div>
+    <h3 data-i18n="time_filter_h">Time window for alerts</h3>
+    <label><input type="checkbox" id="tf-on" checked> <span data-i18n="tf_on">Only alerts near the cursor</span></label>
+    <select id="tf-win"></select>
+
+    <h3 data-i18n="thresholds">Detection thresholds</h3>
+    <p class="note" data-i18n="thr_note"></p>
+    <div id="thr-live"></div>
+    <details><summary data-i18n="thr_raw">Values used by this build</summary>
+      <div class="inner"><div id="thresholds"></div></div></details>
+  </section>
+
+  <section id="tab-layers" class="tab">
+    <!-- UN SOLO SITIO. Antes habia cuatro listas planas -- las del build, las
+         de Copernicus Marine, las de EMODnet y las «live services» escritas a
+         mano aqui -- sumando unas sesenta casillas en un scroll continuo.
+         Ahora las pinta layerpanel.js desde un catalogo unico, agrupadas y
+         plegables, con buscador. Lo que sigue aqui son las FILAS que llevan
+         su propio estado y sus propios escuchadores: el panel las MUEVE al
+         grupo que toca en vez de volver a crearlas, para no perderlos. -->
+    <div id="layer-panel"></div>
+
+    <div id="layer-rows" hidden>
+      <div class="lrow" id="row-depthmap">
+        <label><input type="checkbox" id="depthmap"> <span data-i18n="dm_layer">Baltic depth map (own palette)</span></label>
+        <div id="depth-legend" hidden></div>
+      </div>
+      <div class="lrow" id="row-osm">
+        <label><input type="checkbox" id="osm-tiles"> OSM basemap (tile.openstreetmap.org)</label>
+        <p class="note sub-opt" data-i18n="osm_note"></p>
+      </div>
+      <div class="lrow" id="row-coasthd">
+        <label><input type="checkbox" id="coasthd"> <span data-i18n="coast_layer">HELCOM coastline, full detail (maps.helcom.fi)</span></label>
+        <p class="note sub-opt" data-i18n="coast_note"></p>
+        <div class="note sub-opt" id="coasthd-status"></div>
+      </div>
+      <div class="lrow" id="row-emodnetwms">
+        <label><input type="checkbox" id="emodnet-wms"> EMODnet bathymetry WMS (ows.emodnet-bathymetry.eu)</label>
+        <div id="wms-legend" hidden></div>
+      </div>
+      <div class="lrow" id="row-s1">
+        <label><input type="checkbox" id="s1-layer" checked> <span data-i18n="s1_layer">Sentinel-1 SAR — radar, day and night</span></label>
+        <label class="sub-opt"><input type="checkbox" id="s1-follow"> <span data-i18n="follow_time">Follow the time cursor</span></label>
+        <div class="note" id="s1-status"></div>
+      </div>
+      <div class="lrow" id="row-s2">
+        <label><input type="checkbox" id="s2-layer"> <span data-i18n="s2_layer">Sentinel-2 optical — true colour, daylight only</span></label>
+        <label class="sub-opt"><input type="checkbox" id="s2-follow" checked> <span data-i18n="follow_time">Follow the time cursor</span></label>
+        <div class="note" id="s2-status"></div>
+      </div>
+      <div class="lrow" id="row-gfw">
+        <label><input type="checkbox" id="gfw-layer"> <span data-i18n="gfw_layer">Global Fishing Watch behaviour events</span></label>
+        <div class="note" id="gfw-status"></div>
+      </div>
+      <div class="lrow" id="row-gfwgrid">
+        <label><input type="checkbox" id="gfwgrid-layer"> <span data-i18n="gfwgrid_layer">Global Fishing Watch activity grid</span></label>
+        <div class="note" id="gfwgrid-status"></div>
+      </div>
+    </div>
+    <p class="note" data-i18n="img_note"></p>
+    <p class="note" data-i18n="net_note"></p>
+  </section>
+
+  <section id="tab-sources" class="tab">
+    <div id="sources"></div>
+    <h3 data-i18n="build_health">Build health</h3>
+    <div id="health"></div>
+    <h3 data-i18n="auth_h">Legal cover around the Baltic</h3>
+    <div id="authorities"></div>
+    <h3 data-i18n="provenance">Provenance and licences</h3>
+    <div id="licences"></div>
+  </section>
+
+  <section id="tab-settings" class="tab">
+    <h3 data-i18n="brand_label">Team or company name</h3>
+    <input type="text" id="set-team" placeholder="e.g. Nordic Watch" autocomplete="off">
+    <p class="note" data-i18n="brand_help"></p>
+    <h3 data-i18n="lang_label">Language</h3>
+    <select id="set-lang"></select>
+    <h3 data-i18n="tz_label">Time zone</h3>
+    <select id="set-tz"></select>
+    <p class="note" data-i18n="tz_help"></p>
+    <div class="btn-row">
+      <button class="btn primary" id="set-save" data-i18n="save">Save</button>
+      <button class="btn" id="set-reset" data-i18n="reset">Reset to defaults</button>
+    </div>
+    <div class="note" id="set-msg"></div>
+  </section>
+</aside>
+<div id="resizer" title="drag to resize"></div>
+
+<div id="lazybar" hidden></div>
+<div id="imgprog" hidden></div>
+
+<div id="toolbar">
+  <button class="btn tbtn" data-toggle="srcstrip" title="sources"><span data-i18n="tb_sources">Sources</span></button>
+  <button class="btn tbtn" data-toggle="legend" title="legend"><span data-i18n="tb_legend">Legend</span></button>
+  <button class="btn tbtn" id="tb-mapkey" title="key"><span data-i18n="tb_key">Key</span></button>
+  <button class="btn tbtn" data-toggle="timebar" title="time"><span data-i18n="tb_time">Time</span></button>
+  <button class="btn tbtn" data-toggle="basinbar" title="basins"><span data-i18n="tb_basins">Basins</span></button>
+</div>
+
+<div id="vfbanner" hidden></div>
+
+<div id="mapnote" hidden></div>
+<div id="topleft">
+  <div id="basinbar"></div>
+  <div id="srcstrip"></div>
+</div>
+
+<div id="timebar"></div>
+
+<div id="botleft">
+  <div id="legend"></div>
+  <div id="mapkey" hidden></div>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="i18n.js"></script>
+<script src="explain.js"></script>
+<script src="lazy.js"></script>
+<script src="severity.js"></script>
+<script src="alertgist.js"></script>
+<script src="sources.js"></script>
+<script src="depthmap.js"></script>
+<script src="marine.js"></script>
+<script src="livealerts.js"></script>
+<script src="lanes.js"></script>
+<script src="emodnet.js"></script>
+<script src="layerpanel.js"></script>
+<script src="coasthd.js"></script>
+<script src="mapkey.js"></script>
+<script src="basins.js"></script>
+<script src="destinations.js"></script>
+<script src="vessel.js"></script>
+<script src="app.js"></script>
+<script src="time.js"></script>
+<script src="imagery.js"></script>
+<script src="live.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

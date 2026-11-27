@@ -1,0 +1,15 @@
+# Lo que hace falta para CORRER la aplicación y las grabadoras.
+#
+# El proyecto es casi todo biblioteca estándar y se quiere así: cada línea de
+# aquí es una dependencia que alguien tiene que mantener. Sólo hay dos, y cada
+# una se cae sola si falta, sin llevarse el resto por delante.
+#
+#   software/venv.sh            lo instala donde dice rutas.toml
+#   software/requirements-dev.txt   añade lo de los tests
+#
+# Versiones fijadas: una compilación que funcionó tiene que volver a funcionar
+# dentro de seis meses. Para subirlas, cambiar el número aquí y volver a correr
+# venv.sh.
+
+h3==4.3.0          # celdas hexagonales; capa `gps_interference` (custody/gpsjam.py)
+paho-mqtt==2.1.0   # ingesta AIS por MQTT (ais_recorder/mqtt_ingest.py)
