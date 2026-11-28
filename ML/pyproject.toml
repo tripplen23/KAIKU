@@ -1,0 +1,14 @@
+[project]
+name = "kaiku-ml"
+version = "0.1.0"
+description = "KAIKU Probabilistic Ship-Motion Gaussian MLP training and evaluation"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "matplotlib",
+    "ipykernel",
+    "nbconvert",
+]

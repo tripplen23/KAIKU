@@ -262,7 +262,7 @@ def t_emodnet():
     e_end = max(l["time"]["end_ms"] for l in emsa)
     c_end = max(l["time"]["end_ms"] for l in cogea)
     import datetime as _dt
-    f = lambda ms: _dt.datetime.fromtimestamp(ms / 1000, _dt.UTC).strftime("%Y-%m")
+    f = lambda ms: _dt.datetime.fromtimestamp(ms / 1000, _dt.timezone.utc).strftime("%Y-%m")
     # Lo que hace util a la de EMSA es el DESFASE: si las dos acabaran a la vez,
     # alguien habria mezclado los productos.
     ok("la de EMSA va muy por delante de la de Cogea",

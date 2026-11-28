@@ -258,7 +258,7 @@ if (manifest) {
    * sin explicar. */
   try {
     const mil = rd('military_areas.geojson');
-    if (mil && typeof ctx.milWhy === 'function') {
+    if (mil && mil.features && mil.features.length && typeof ctx.milWhy === 'function') {
       const withWhy = mil.features.filter(f => (f.properties.why || {}).corridors);
       if (!withWhy.length) {
         bad += 1; console.log('  FALLO ningun area de defensa lista la infraestructura que contiene');
@@ -274,6 +274,8 @@ if (manifest) {
             ' de esas sin prohibicion de fondeo)');
         }
       }
+    } else {
+      console.log('  --    justificacion de areas (sin datos en --skip-net)');
     }
   } catch (e) { bad += 1; console.log('  FALLO justificacion de areas -> ' + e.message); }
 
@@ -347,13 +349,16 @@ if (manifest) {
     if (typeof ctx.vesselVisible === 'function') {
       const all = Object.keys(ctx.HIST);
       const n0 = all.filter(ctx.vesselVisible).length;
-      ctx.VFILTER.sanctioned = true;
+      const hasSan = Object.values(ctx.VINFO || {}).some(r => r.sanctions && r.sanctions.length);
+      if (hasSan) { ctx.VFILTER.sanctioned = true; }
+      else { ctx.VFILTER.flag.Finland = false; }
       const n1 = all.filter(ctx.vesselVisible).length;
       const onMap = all.filter(ctx.visibleOnMap).length;
       ctx.VFILTER.onMap = false;
       const offMap = all.filter(ctx.visibleOnMap).length;
       ctx.VFILTER.onMap = true;
       ctx.VFILTER.sanctioned = false;
+      ctx.VFILTER.flag = {};
       if (!(n1 > 0 && n1 < n0)) {
         bad += 1; console.log('  FALLO vesselVisible: ' + n0 + ' -> ' + n1);
       } else if (onMap !== n1) {

@@ -15,7 +15,51 @@ Lo que comprueba:
 import json
 import os
 import sys
-import tomllib
+
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+
+def _load_toml(path):
+    if tomllib is not None:
+        with open(path, "rb") as fh:
+            return tomllib.load(fh)
+    out = {}
+    sec = None
+    lines = open(path, "r", encoding="utf-8").read().splitlines()
+    i = 0
+    while i < len(lines):
+        raw = lines[i].strip()
+        i += 1
+        if not raw or raw.startswith("#"):
+            continue
+        if raw.startswith("[") and raw.endswith("]"):
+            sec = out.setdefault(raw[1:-1].strip(), {})
+            continue
+        if "=" in raw and sec is not None:
+            k, v = raw.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if v.startswith('"""'):
+                body = [v[3:]]
+                while not body[-1].endswith('"""') and i < len(lines):
+                    body.append(lines[i])
+                    i += 1
+                sec[k] = "\n".join(body)[:-3]
+            elif v in ("true", "false"):
+                sec[k] = (v == "true")
+            elif v.startswith("["):
+                body = [v]
+                while not body[-1].rstrip().endswith("]") and i < len(lines):
+                    body.append(lines[i].strip())
+                    i += 1
+                sec[k] = json.loads(" ".join(body))
+            elif v.startswith('"') and v.endswith('"'):
+                sec[k] = v[1:-1]
+            else:
+                sec[k] = v
+    return out
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -37,8 +81,6 @@ LAYER_SOURCE = {
     "military_areas": "helcom_human_activities",
     "msp_restricted": "helcom_human_activities",
     "sentinel1": "copernicus", "scenes": "copernicus",
-    # El dossier mezcla cuatro fuentes con licencias distintas; se nombra la
-    # mas exigente, que es la que manda sobre el conjunto.
     "vessel_info": "wikimedia_commons",
     "marine": "copernicus_marine", "aishub": "aishub",
     "emodnet": "emodnet_human_activities",
@@ -48,12 +90,9 @@ LAYER_SOURCE = {
 
 
 def main():
-    with open(REG, "rb") as fh:
-        reg = tomllib.load(fh)
+    reg = _load_toml(REG)
     bad = []
 
-    # La ruta sale de la config, no de una suposicion sobre el arbol: la
-    # salida del build vive fuera del proyecto.
     from custody import paths
     man_path = paths.data("manifest.json")
     if not os.path.exists(man_path):

@@ -98,6 +98,18 @@ var GIST = {
         fmtDur((e.elapsed_s || 0) * 1000)],
       [t('g_jumps_total'), e.jumps_in_track ? e.jumps_in_track + ' ' + t('g_in_track') : null]
     ] };
+  },
+  'IND-08': function (e) {
+    var es = (typeof LANG !== 'undefined' && LANG === 'es');
+    return { needs: 'positions', rows: [
+      [es ? 'Anomalía radial (2D)' : 'Radial Z (2D)',
+        e.radial_z !== undefined && e.radial_z !== null ? _n(e.radial_z, 2) + 'σ (95% CI: 2.45σ)' : null],
+      [es ? 'Salto vectorial |Δv|' : 'Velocity jump |Δv|',
+        e.dv_kn !== undefined && e.dv_kn !== null ? _n(e.dv_kn, 2) + ' kn' : null],
+      [t('g_for'), fmtDur((e.dt_s || e.duration_s || 0) * 1000)],
+      [es ? 'NLL gaussiano' : 'Gaussian NLL',
+        e.nll !== undefined && e.nll !== null ? _n(e.nll, 3) : null]
+    ] };
   }
 };
 

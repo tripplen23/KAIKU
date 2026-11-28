@@ -26,7 +26,9 @@ import json
 import logging
 import statistics
 
-from . import geo
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from . import geo, motion
 
 LOG = logging.getLogger("custody.ind")
 
@@ -89,6 +91,17 @@ THRESHOLDS = {
     "anchor_max_depth_m": 80.0,
     "anchor_min_depth_m": 10.0,
 
+    # --- IND-08 anomalía cinemática aprendida (Gaussian MLP 14->64->64->4)
+    "motion_min_dt_s": 60,
+    "motion_max_dt_s": 300,
+    "motion_min_sog_kn": 2.0,
+    "motion_max_sog_kn": 30.0,
+    "motion_radial_z": 2.447746830680816,  # sqrt(chi2_{2, 0.95}) = 2.45 sigma
+    "motion_min_dv_kn": 1.0,
+    "motion_min_decel_kn": 0.8,
+    "motion_min_hits": 2,
+    "motion_corridor_m": 5000.0,           # 5 km alrededor de corredores submarinos
+
     # --- clasificación de salida
     # IND-05 es EXPOSICIÓN, no alerta. Medido en la pasada en que se tomo la decision: 71 de 75
     # "alertas" eran ferries de línea Helsinki-Tallinn cruzando cables, porque
@@ -117,7 +130,8 @@ THRESHOLDS = {
 
     # --- puntuación compuesta
     "weights": {"IND-01": 0.30, "IND-02": 0.20, "IND-03": 0.15,
-                "IND-04": 0.20, "IND-05": 0.15, "IND-06": 0.25},
+                "IND-04": 0.20, "IND-05": 0.15, "IND-06": 0.25,
+                "IND-08": 0.25},
 }
 
 JUSTIFICATION = {
@@ -207,6 +221,157 @@ JUSTIFICATION = {
         "canales balizados y atraques, donde el tráfico maniobra por oficio y "
         "los cables llegan enterrados o acorazados. Confianza: Alta en la "
         "física, Alta en el dato de profundidad (EMODnet DTM)."),
+    "IND-08": {
+        "what": (
+            "Al menos dos pasos consecutivos o sostenidos de velocidad "
+            "(Δv_east, Δv_north) en 60-300 s con frenada longitudinal "
+            "(Δsog <= -0,8 kn y |Δv| >= 1,0 kn) a <= 5 km de un corredor "
+            "de cable o gasoducto submarino se salen de la elipse de "
+            "confianza al 95 % predicha por el modelo cinemático gaussiano "
+            "aprendido con campo de flujo histórico (ShipMotionGaussianMLP v3, 14->64->64->4)."
+        ),
+        "why": (
+            "IND-01 exige 30 minutos sostenidos entre 1 y 5 kn sobre el corredor. "
+            "El inicio de un arrastre de ancla o una frenada brusca en mar abierto "
+            "produce en solo 60-300 s por paso una caída longitudinal de velocidad "
+            "(Δsog <= -0,8 kn) y deriva transversal que viola la inercia normal del "
+            "buque condicionada por su aceleración previa causal (prev_dv_east, "
+            "prev_dv_north), su maniobrabilidad (is_maneuver_vessel) y el campo de "
+            "flujo histórico en 8 octantes (flow_dv_east, flow_dv_north, has_flow) "
+            "(radial_z > sqrt(chi2_{2, 0.95}) = 2,45 sigma, |Δv| >= 1,0 kn y "
+            "motion_min_hits = 2 pasos anómalos) dentro del dominio válido de "
+            "tránsito (60-300 s, 2-30 kn), a <= 5 km de un corredor submarino "
+            "(motion_corridor_m = 5.000 m) y fuera de la máscara de puertos."
+        ),
+        "confidence": (
+            "ALTA en la rareza estadística del salto cinemático (cobertura "
+            "empírica 2D al 95 % = 94,94 % y marginal = 95,90 % en test 2024 del "
+            "golfo de Finlandia; 93,55 % 2D / 95,08 % marginal sin reentrenamiento "
+            "en 1.122 MMSI no vistos de DMA 2026-11-20; y 87,63 % 2D / 90,70 % "
+            "marginal en 803 MMSI bajo temporal invernal de 23,4-29,0 kn en DMA "
+            "2026-02-04). MEDIA en la atribución: una reducción brusca de máquina "
+            "o aproximación a fondeadero también produce desaceleración; cuando no "
+            "hay forzamiento metoceánico en línea se declara explícitamente "
+            "forcing_source='none'. El discriminador Tier-2 (regresión logística L2 "
+            "entrenada en 1.500 episodios simulados 3-DOF Fossen + catenaria en 3 "
+            "clases de casco) puntúa frenada, deriva unilateral |HDG-COG| y "
+            "profundidad <= 110 m como triaje físico, NO prueba de fondeo."
+        ),
+        "measured": (
+            "Entrenado sobre 41.539 pasos de entrenamiento (60.000 pasos muestreados "
+            "en total y 9.923 celdas de flujo en 8 octantes de 1.910.555 transiciones "
+            "de entrenamiento) del golfo de Finlandia (otoño 2024) en 1.486 MMSI de "
+            "entrenamiento, y validado sin reentrenamiento sobre tres bancos "
+            "independientes: test 2024 GoF (8.690 pasos en 319 MMSI, 94,94 % 2D / "
+            "95,90 % marginal al 95 % CI; giros en canal |Δrumbo| >= 10° con "
+            "RMSE de rumbo 15,03° vs 15,95° Pers), DMA 2026-11-20 (20.000 pasos en "
+            "1.122 MMSI, 93,55 % 2D / 95,08 % marginal; recall del 53,4 % a -0,5 kn, "
+            "91,8 % a -1,0 kn y 98,0 % a -1,5 kn) y temporal invernal DMA "
+            "2026-02-04 (20.000 pasos en 803 MMSI con viento de 23,4-29,0 kn, "
+            "87,63 % 2D / 90,70 % marginal; recall del 59,6 % a -0,5 kn, 90,2 % "
+            "a -1,0 kn y 98,6 % a -1,5 kn)."
+        ),
+        "en": {
+            "what": (
+                "At least two 60-300 s velocity transitions (dv_east, dv_north) "
+                "with longitudinal braking (dsog <= -0.8 kn and |dv| >= 1.0 kn) "
+                "within 5 km of a subsea cable or pipeline corridor fall outside "
+                "the 95% 2D confidence ellipse predicted by the learned flow-aware "
+                "Gaussian motion model (ShipMotionGaussianMLP v3, 14->64->64->4)."
+            ),
+            "why": (
+                "IND-01 requires 30 minutes of sustained 1-5 kn speed over a corridor. "
+                "Early anchor-drag onset or an abrupt open-water deceleration produces "
+                "within 60-300 s per step an along-track speed drop (dsog <= -0.8 kn) "
+                "and cross-track crabbing drift that exceeds the vessel's learned "
+                "inertia envelope conditioned on causal prior step acceleration "
+                "(prev_dv_east, prev_dv_north), hull maneuverability class "
+                "(is_maneuver_vessel), and the 8-octant historical traffic flow field "
+                "(flow_dv_east, flow_dv_north, has_flow) (radial_z > sqrt(chi2_{2, 0.95}) = "
+                "2.45 sigma, |dv| >= 1.0 kn, and motion_min_hits = 2 anomalous steps) inside "
+                "the valid transit domain (60-300 s, 2-30 kn), within <= 5 km of a subsea "
+                "cable/pipeline corridor (motion_corridor_m = 5,000 m), and outside port zones."
+            ),
+            "confidence": (
+                "HIGH on statistical kinematic anomaly (94.94% 2D / 95.90% marginal "
+                "95% CI coverage on 2024 Gulf of Finland test; 93.55% 2D / 95.08% "
+                "marginal across 1,122 unseen 2026-11-20 DMA MMSIs; and 87.63% 2D / "
+                "90.70% marginal across 803 unseen MMSIs during the 2026-02-04 "
+                "23.4-29.0 kn winter storm). MEDIUM on intent: sharp engine "
+                "reductions or anchorage approaches also produce braking residuals; "
+                "when live metocean forcing is absent, forcing_source='none' is "
+                "explicitly recorded. The Tier-2 physics-sim discriminator (L2 "
+                "logistic regression trained on 1,500 simulated 3-DOF Fossen + "
+                "catenary episodes across 3 hull classes) scores braking, "
+                "unilateral |HDG-COG| crab, and EMODnet seabed reachability <= 110 m "
+                "as a triage aid, NOT proof of anchor deployment."
+            ),
+            "measured": (
+                "Trained on 41,539 train (60,000 sampled total, plus 9,923 8-octant flow "
+                "cells from 1,910,555 train-MMSI transitions) Gulf of Finland steps "
+                "across 1,486 train MMSIs (Autumn 2024) and validated across 3 "
+                "independent benchmarks: 2024 GoF held-out test (8,690 steps across "
+                "319 MMSIs, 94.94% 2D / 95.90% marginal 95% CI; curved-lane turns "
+                "|Δbearing| >= 10° Bearing RMSE 15.03° vs 15.95° Pers), 2026-11-20 DMA calm "
+                "day (20,000 steps across 1,122 MMSIs, 93.55% 2D / 95.08% marginal; "
+                "53.4% recall at -0.5 kn, 91.8% at -1.0 kn, 98.0% at -1.5 kn), and "
+                "2026-02-04 DMA winter high-wind day (20,000 steps across 803 MMSIs "
+                "at 23.4-29.0 kn wind, 87.63% 2D / 90.70% marginal; 59.6% recall at "
+                "-0.5 kn, 90.2% at -1.0 kn, 98.6% at -1.5 kn)."
+            ),
+        },
+        "es": {
+            "what": (
+                "Al menos dos pasos consecutivos o sostenidos de velocidad "
+                "(Δv_east, Δv_north) en 60-300 s con frenada longitudinal "
+                "(Δsog <= -0,8 kn y |Δv| >= 1,0 kn) a <= 5 km de un corredor "
+                "de cable o gasoducto submarino se salen de la elipse de "
+                "confianza al 95 % predicha por el modelo cinemático gaussiano "
+                "aprendido con campo de flujo histórico (ShipMotionGaussianMLP v3, 14->64->64->4)."
+            ),
+            "why": (
+                "IND-01 exige 30 minutos sostenidos entre 1 y 5 kn sobre el corredor. "
+                "El inicio de un arrastre de ancla o una frenada brusca en mar abierto "
+                "produce en solo 60-300 s por paso una caída longitudinal de velocidad "
+                "(Δsog <= -0,8 kn) y deriva transversal que viola la inercia normal del "
+                "buque condicionada por su aceleración previa causal (prev_dv_east, "
+                "prev_dv_north), su maniobrabilidad (is_maneuver_vessel) y el campo de "
+                "flujo histórico en 8 octantes (flow_dv_east, flow_dv_north, has_flow) "
+                "(radial_z > sqrt(chi2_{2, 0.95}) = 2,45 sigma, |Δv| >= 1,0 kn y "
+                "motion_min_hits = 2 pasos anómalos) dentro del dominio válido de "
+                "tránsito (60-300 s, 2-30 kn), a <= 5 km de un corredor submarino "
+                "(motion_corridor_m = 5.000 m) y fuera de la máscara de puertos."
+            ),
+            "confidence": (
+                "ALTA en la rareza estadística del salto cinemático (cobertura "
+                "empírica 2D al 95 % = 94,94 % y marginal = 95,90 % en test 2024 del "
+                "golfo de Finlandia; 93,55 % 2D / 95,08 % marginal sin reentrenamiento "
+                "en 1.122 MMSI no vistos de DMA 2026-11-20; y 87,63 % 2D / 90,70 % "
+                "marginal en 803 MMSI bajo temporal invernal de 23,4-29,0 kn en DMA "
+                "2026-02-04). MEDIA en la atribución: una reducción brusca de máquina "
+                "o aproximación a fondeadero también produce desaceleración; cuando no "
+                "hay forzamiento metoceánico en línea se declara explícitamente "
+                "forcing_source='none'. El discriminador Tier-2 (regresión logística L2 "
+                "entrenada en 1.500 episodios simulados 3-DOF Fossen + catenaria en 3 "
+                "clases de casco) puntúa frenada, deriva unilateral |HDG-COG| y "
+                "profundidad <= 110 m como triaje físico, NO prueba de fondeo."
+            ),
+            "measured": (
+                "Entrenado sobre 41.539 pasos de entrenamiento (60.000 pasos muestreados "
+                "en total y 9.923 celdas de flujo en 8 octantes de 1.910.555 transiciones "
+                "de entrenamiento) del golfo de Finlandia (otoño 2024) en 1.486 MMSI de "
+                "entrenamiento, y validado sin reentrenamiento sobre tres bancos "
+                "independientes: test 2024 GoF (8.690 pasos en 319 MMSI, 94,94 % 2D / "
+                "95,90 % marginal al 95 % CI; giros en canal |Δrumbo| >= 10° con "
+                "RMSE de rumbo 15,03° vs 15,95° Pers), DMA 2026-11-20 (20.000 pasos en "
+                "1.122 MMSI, 93,55 % 2D / 95,08 % marginal; recall del 53,4 % a -0,5 kn, "
+                "91,8 % a -1,0 kn y 98,0 % a -1,5 kn) y temporal invernal DMA "
+                "2026-02-04 (20.000 pasos en 803 MMSI con viento de 23,4-29,0 kn, "
+                "87,63 % 2D / 90,70 % marginal; recall del 59,6 % a -0,5 kn, 90,2 % "
+                "a -1,0 kn y 98,6 % a -1,5 kn)."
+            ),
+        },
+    },
 }
 
 
@@ -223,6 +388,10 @@ CTO_MAPPING = {
               "ponderado por batimetría",
 }
 CTO_MAPPING["IND-06"] = "P8 (encuentro barco a barco), equivalente al AtSeaEncounter de EMSA"
+CTO_MAPPING["IND-08"] = (
+    "P3/P7 (residuo cinemático aprendido con MLP gaussiano v3 14->64->64->4 y campo "
+    "de flujo histórico sobre pasos de 60-300 s, umbral radial 2D chi2_2 al 95 % = 2,45 sigma)"
+)
 
 NOT_IMPLEMENTED = {
     "P5": "invariancia del signo de COG-HDG frente al viento. Falta ERA5/CMEMS WIND",
@@ -825,11 +994,533 @@ def ind06_encounters(tracks, th, port_mask=None, vessels=None, counters=None,
     return out
 
 
+def _finite_float(val: Any, default: float = 0.0) -> float:
+    """Coerce `val` to a finite float, falling back to `default` on None or NaN/Inf."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
+
+
+def _sanitize_forcing_output(
+    w_along: Any,
+    w_cross: Any,
+    c_along: Any,
+    c_cross: Any,
+    source: str,
+) -> Tuple[float, float, float, float, str]:
+    """Ensure all 4 projected forcing components are finite floats."""
+    return (
+        _finite_float(w_along, 0.0),
+        _finite_float(w_cross, 0.0),
+        _finite_float(c_along, 0.0),
+        _finite_float(c_cross, 0.0),
+        str(source),
+    )
+
+
+def _resolve_step_forcing(
+    forcing: Any,
+    fix_dict: Dict[str, Any],
+    bearing_rad: float,
+) -> Tuple[float, float, float, float, str]:
+    """Resolve `(wind_along, wind_cross, current_along, current_cross, forcing_source)`."""
+    if forcing is None:
+        return (0.0, 0.0, 0.0, 0.0, "none")
+    b_rad = _finite_float(bearing_rad, 0.0)
+    if callable(forcing):
+        res = forcing(fix_dict, b_rad)
+        if len(res) == 5:
+            return _sanitize_forcing_output(res[0], res[1], res[2], res[3], str(res[4]))
+        return _sanitize_forcing_output(res[0], res[1], res[2], res[3], "callable")
+    if isinstance(forcing, dict):
+        if "wind_along" in forcing:
+            return _sanitize_forcing_output(
+                forcing.get("wind_along"),
+                forcing.get("wind_cross"),
+                forcing.get("current_along"),
+                forcing.get("current_cross"),
+                str(forcing.get("source") or "provided"),
+            )
+        if "wind_speed_kn" in forcing or "wind_ms" in forcing:
+            if "wind_speed_kn" in forcing and forcing.get("wind_speed_kn") is not None:
+                w_spd = _finite_float(forcing.get("wind_speed_kn"), 0.0)
+            else:
+                w_spd = _finite_float(forcing.get("wind_ms"), 0.0) * 1.9438445
+            w_from_raw = forcing.get("wind_from_deg")
+            if w_from_raw is None:
+                w_from_raw = forcing.get("wind_dir_deg")
+            w_from = _finite_float(w_from_raw, 0.0)
+            c_spd = _finite_float(forcing.get("current_speed_kn"), 0.0)
+            c_to = _finite_float(forcing.get("current_to_deg"), 0.0)
+            w_to_rad = math.radians((w_from + 180.0) % 360.0)
+            c_to_rad = math.radians(c_to % 360.0)
+            return _sanitize_forcing_output(
+                w_spd * math.cos(w_to_rad - b_rad),
+                w_spd * math.sin(w_to_rad - b_rad),
+                c_spd * math.cos(c_to_rad - b_rad),
+                c_spd * math.sin(c_to_rad - b_rad),
+                str(forcing.get("source") or "metocean"),
+            )
+        ts_val = _finite_float(fix_dict.get("ts"), -1.0)
+        if ts_val >= 0.0:
+            hour_ts = int((int(ts_val) // 3_600_000) * 3600)
+            if hour_ts in forcing and forcing[hour_ts] is not None:
+                w_spd_raw, w_from_raw, c_spd_raw, c_to_raw = forcing[hour_ts]
+                w_spd = _finite_float(w_spd_raw, 0.0)
+                w_from = _finite_float(w_from_raw, 0.0)
+                c_spd = _finite_float(c_spd_raw, 0.0)
+                c_to = _finite_float(c_to_raw, 0.0)
+                w_to_rad = math.radians((w_from + 180.0) % 360.0)
+                c_to_rad = math.radians(c_to % 360.0)
+                return _sanitize_forcing_output(
+                    w_spd * math.cos(w_to_rad - b_rad),
+                    w_spd * math.sin(w_to_rad - b_rad),
+                    c_spd * math.cos(c_to_rad - b_rad),
+                    c_spd * math.sin(c_to_rad - b_rad),
+                    "hourly_lookup",
+                )
+    return (0.0, 0.0, 0.0, 0.0, "none")
+
+
+def ind08_motion_anomaly(
+    track: Sequence[Dict[str, Any]],
+    th: Optional[Dict[str, Any]] = None,
+    corridor_idx: Any = None,
+    forcing: Any = None,
+    counters: Optional[Dict[str, Any]] = None,
+    weights_path: Optional[str] = None,
+    port_mask: Any = None,
+    vessels: Optional[Dict[Any, Any]] = None,
+    ship_type: Any = None,
+    depth_grid: Any = None,
+    anchor_weights_path: Optional[str] = None,
+) -> List[Tuple[str, Dict[str, Any], Dict[str, Any], float]]:
+    """IND-08: anomalía cinemática aprendida con ShipMotionGaussianMLP (14->64->64->4).
+
+    Evalúa transiciones consecutivas de velocidad `(v_east, v_north)` sobre pasos
+    de `60 <= dt_s <= 300` con velocidad `sog` en `(2.0, 30.0)` nudos. Emite a lo
+    sumo una alerta por traza (el paso con mayor `radial_z`) cuando al menos
+    `motion_min_hits` pasos sufren frenada anómala (`radial_z > sqrt(chi2_{2, 0.95}) = 2.448`,
+    `|Δv| >= motion_min_dv_kn` y caída longitudinal `sog_before - sog_after >= motion_min_decel_kn`)
+    a `<= motion_corridor_m` de `corridor_idx`, fuera de `port_mask` y sin solapar
+    saltos imposibles `IND-07`.
+    Si el fichero de pesos no existe o es inválido, degrada limpiamente a `[]`.
+    """
+    th = th or THRESHOLDS
+    model = motion.load_model_safe(weights_path)
+    if model is None:
+        _bump_count(counters, "model_unavailable_IND-08")
+        return []
+
+    min_dt = float(th.get("motion_min_dt_s", motion.VALID_DT_MIN_S))
+    max_dt = float(th.get("motion_max_dt_s", motion.VALID_DT_MAX_S))
+    min_sog = float(th.get("motion_min_sog_kn", motion.VALID_SOG_MIN_KN))
+    max_sog = float(th.get("motion_max_sog_kn", motion.VALID_SOG_MAX_KN))
+    z_thresh = float(th.get("motion_radial_z", motion.RADIAL_Z_95CI))
+    min_dv = float(th.get("motion_min_dv_kn", 1.0))
+    min_decel = float(th.get("motion_min_decel_kn", 0.8))
+    min_hits = int(th.get("motion_min_hits", 2))
+    max_corridor_m = float(th.get("motion_corridor_m", 5000.0))
+    corridor_buf_m = float(th.get("corridor_buffer_m", 500.0))
+    max_plausible_kn = float(th.get("impossible_kn", 45.0))
+    imp_min_dt_s = float(th.get("impossible_min_dt_s", 5.0))
+    imp_min_dist_m = float(th.get("impossible_min_dist_m", 2000.0))
+
+    resolved_ship_type = ship_type
+    if resolved_ship_type is None and track:
+        for f_item in track:
+            st_cand = f_item.get("shipType")
+            if st_cand is None:
+                st_cand = f_item.get("ship_type")
+            if st_cand is not None:
+                resolved_ship_type = st_cand
+                break
+        if resolved_ship_type is None and vessels:
+            mmsi_key = track[0].get("mmsi")
+            meta_v = vessels.get(mmsi_key) or vessels.get(str(mmsi_key)) or {}
+            resolved_ship_type = meta_v.get("shipType")
+            if resolved_ship_type is None:
+                resolved_ship_type = meta_v.get("ship_type")
+    is_maneuver = motion.is_maneuver_vessel_type(resolved_ship_type)
+
+    # Pre-identify raw IND-07 impossible jump indices (including sub-60s jumps)
+    jump_raw_indices = set()
+    for i in range(len(track) - 1):
+        fa, fb = track[i], track[i + 1]
+        try:
+            lon_a, lat_a, ts_a = float(fa["lon"]), float(fa["lat"]), float(fa["ts"])
+            lon_b, lat_b, ts_b = float(fb["lon"]), float(fb["lat"]), float(fb["ts"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (
+            math.isfinite(lon_a)
+            and math.isfinite(lat_a)
+            and math.isfinite(ts_a)
+            and math.isfinite(lon_b)
+            and math.isfinite(lat_b)
+            and math.isfinite(ts_b)
+        ):
+            continue
+        dt_raw = (ts_b - ts_a) / 1000.0
+        if dt_raw < imp_min_dt_s:
+            continue
+        d_raw = geo.haversine_m(lon_a, lat_a, lon_b, lat_b)
+        if d_raw >= imp_min_dist_m and (d_raw / dt_raw) * 1.9438445 > max_plausible_kn:
+            jump_raw_indices.add(i)
+            jump_raw_indices.add(i + 1)
+
+    kept: List[Tuple[int, Dict[str, Any]]] = []
+    for idx, f in enumerate(track):
+        lon, lat, sog, ts = f.get("lon"), f.get("lat"), f.get("sog"), f.get("ts")
+        if lon is None or lat is None or sog is None or ts is None:
+            continue
+        try:
+            lon_val = float(lon)
+            lat_val = float(lat)
+            sog_val = float(sog)
+            ts_val = float(ts)
+        except (TypeError, ValueError):
+            continue
+        if not (
+            math.isfinite(lon_val)
+            and math.isfinite(lat_val)
+            and math.isfinite(sog_val)
+            and math.isfinite(ts_val)
+        ):
+            continue
+        if f.get("navStat") in (1, 5):
+            continue
+        if not (min_sog < sog_val < max_sog):
+            continue
+        if not kept or (ts_val - float(kept[-1][1]["ts"])) / 1000.0 >= min_dt:
+            kept.append((idx, f))
+
+    if len(kept) < 3:
+        return []
+
+    two_pi = 2.0 * math.pi
+    segs: List[Dict[str, Any]] = []
+    for k in range(len(kept) - 1):
+        idx0, f0 = kept[k]
+        idx1, f1 = kept[k + 1]
+        dt_s = (float(f1["ts"]) - float(f0["ts"])) / 1000.0
+        sog0 = float(f0["sog"])
+        sog1 = float(f1["sog"])
+        in_domain = motion.check_domain(
+            dt_s,
+            sog1,
+            min_dt_s=min_dt,
+            max_dt_s=max_dt,
+            min_sog_kn=min_sog,
+            max_sog_kn=max_sog,
+        )
+        lat0, lon0 = float(f0["lat"]), float(f0["lon"])
+        lat1, lon1 = float(f1["lat"]), float(f1["lon"])
+        dlat_nm = (lat1 - lat0) * 60.0
+        dlon_nm = (lon1 - lon0) * 60.0 * math.cos(math.radians(0.5 * (lat0 + lat1)))
+        dist_nm = math.hypot(dlon_nm, dlat_nm)
+        disp_sog = dist_nm / max(dt_s / 3600.0, 1e-6)
+        cog_raw = f1.get("cog")
+        cog_val: Optional[float] = None
+        if cog_raw is not None:
+            try:
+                c_f = float(cog_raw)
+                if math.isfinite(c_f):
+                    cog_val = c_f
+            except (TypeError, ValueError):
+                cog_val = None
+        if dist_nm < 1e-6 and cog_val is not None:
+            bearing_rad = math.radians(cog_val % 360.0)
+        else:
+            bearing_rad = math.atan2(dlon_nm, dlat_nm) % two_pi
+        v_east = sog1 * math.sin(bearing_rad)
+        v_north = sog1 * math.cos(bearing_rad)
+        overlaps_jump = any(
+            r_idx in jump_raw_indices for r_idx in range(idx0, idx1 + 1)
+        )
+        segs.append(
+            {
+                "idx0": idx0,
+                "idx1": idx1,
+                "kept_idx_end": k + 1,
+                "f0": f0,
+                "f1": f1,
+                "lon0": lon0,
+                "lat0": lat0,
+                "lon1": lon1,
+                "lat1": lat1,
+                "dt_s": dt_s,
+                "sog0": sog0,
+                "sog1": sog1,
+                "disp_sog": disp_sog,
+                "in_domain": in_domain and (disp_sog <= max_plausible_kn) and not overlaps_jump,
+                "bearing_rad": bearing_rad,
+                "v_east": v_east,
+                "v_north": v_north,
+            }
+        )
+
+    candidates: List[Tuple[float, Dict[str, Any], Dict[str, Any], float, int, float]] = []
+    model_name = str(model.get("model_name", "ShipMotionGaussianMLP"))
+
+    for j in range(len(segs) - 1):
+        s_prev = segs[j]
+        s_curr = segs[j + 1]
+        if not (s_prev["in_domain"] and s_curr["in_domain"]):
+            continue
+
+        sog_before = float(s_prev["sog1"])
+        sog_after = float(s_curr["sog1"])
+        if abs(s_prev["disp_sog"] - sog_before) >= 2.5:
+            continue
+        if (
+            s_curr["disp_sog"] > max_plausible_kn
+            or s_curr["disp_sog"] > max(sog_before, sog_after) * 1.8 + 3.0
+            or abs(s_curr["disp_sog"] - sog_after) >= 2.5
+        ):
+            continue
+
+        v_east0 = float(s_prev["v_east"])
+        v_north0 = float(s_prev["v_north"])
+        b_rad = float(s_prev["bearing_rad"])
+
+        v_east1 = float(s_curr["v_east"])
+        v_north1 = float(s_curr["v_north"])
+        dt_s = float(s_curr["dt_s"])
+
+        actual_dv_east = v_east1 - v_east0
+        actual_dv_north = v_north1 - v_north0
+        dv_kn = math.hypot(actual_dv_east, actual_dv_north)
+        if dv_kn < min_dv:
+            _bump_count(counters, "below_min_dv_IND-08")
+            continue
+        if (sog_before - sog_after) < min_decel:
+            _bump_count(counters, "non_braking_turn_IND-08")
+            continue
+
+        # Strictly causal prev_dv_east, prev_dv_north from preceding step (t0 -> t1)
+        fb_dsog = max(-2.5, min(2.5, sog_before - float(s_prev["sog0"])))
+        fb_prev_dve = fb_dsog * math.sin(b_rad)
+        fb_prev_dvn = fb_dsog * math.cos(b_rad)
+        if (
+            j > 0
+            and segs[j - 1]["in_domain"]
+            and abs(segs[j - 1]["disp_sog"] - float(segs[j - 1]["sog1"])) < 2.5
+        ):
+            raw_prev_dve = v_east0 - float(segs[j - 1]["v_east"])
+            raw_prev_dvn = v_north0 - float(segs[j - 1]["v_north"])
+            if math.hypot(raw_prev_dve, raw_prev_dvn) < 2.5:
+                prev_dv_east = raw_prev_dve
+                prev_dv_north = raw_prev_dvn
+            else:
+                prev_dv_east = fb_prev_dve
+                prev_dv_north = fb_prev_dvn
+        else:
+            prev_dv_east = fb_prev_dve
+            prev_dv_north = fb_prev_dvn
+
+        f_prev = s_curr["f0"]
+        flow_dv_east, flow_dv_north, has_flow = motion.lookup_flow(
+            f_prev["lat"], f_prev["lon"], v_east0, v_north0, model
+        )
+        w_along, w_cross, c_along, c_cross, f_src = _resolve_step_forcing(
+            forcing, f_prev, b_rad
+        )
+        feat_map: Dict[str, float] = {
+            "v_east": v_east0,
+            "v_north": v_north0,
+            "sog": sog_before,
+            "dt": dt_s,
+            "wind_along": w_along,
+            "wind_cross": w_cross,
+            "current_along": c_along,
+            "current_cross": c_cross,
+            "prev_dv_east": prev_dv_east,
+            "prev_dv_north": prev_dv_north,
+            "is_maneuver_vessel": is_maneuver,
+            "flow_dv_east": flow_dv_east,
+            "flow_dv_north": flow_dv_north,
+            "has_flow": has_flow,
+        }
+        pred = motion.predict(feat_map, model_data=model)
+        mu_e, mu_n, std_e, std_n = pred
+        z_e, z_n, radial_z, nll, is_anom = motion.anomaly_score(
+            actual_dv_east, actual_dv_north, pred, z_threshold_95ci=z_thresh
+        )
+        if not is_anom:
+            continue
+
+        if port_mask is not None:
+            hit_pm = (
+                port_mask.hit(s_curr["lon0"], s_curr["lat0"])
+                or port_mask.hit(s_curr["lon1"], s_curr["lat1"])
+            )
+            if hit_pm:
+                _bump(counters, "port_mask_suppressed_IND-08", s_curr["f1"], {"mask": hit_pm})
+                continue
+
+        idx_start = int(s_curr["idx0"])
+        idx_end = int(s_curr["idx1"])
+        kept_idx_end = int(s_curr["kept_idx_end"])
+        f_start = s_curr["f0"]
+        f_end = s_curr["f1"]
+
+        corridor_ev: Dict[str, Any] = {}
+        if corridor_idx is not None:
+            dist_m, payload = corridor_idx.nearest(f_end["lon"], f_end["lat"])
+            if dist_m is None or payload is None or dist_m > max_corridor_m:
+                _bump(
+                    counters,
+                    "off_corridor_suppressed_IND-08",
+                    f_end,
+                    {"dist_m": round(dist_m, 1) if dist_m is not None else None},
+                )
+                continue
+            if isinstance(payload, (tuple, list)):
+                cable_name = payload[0] if len(payload) > 0 else None
+                corridor_class = payload[1] if len(payload) > 1 else None
+                corridor_osm_id = payload[2] if len(payload) > 2 else None
+            else:
+                cable_name = str(payload)
+                corridor_class = None
+                corridor_osm_id = None
+            corridor_ev = {
+                "dist_m": round(dist_m, 1),
+                "min_distance_m": round(dist_m, 1),
+                "corridor": cable_name,
+                "corridor_class": corridor_class,
+                "corridor_osm_id": corridor_osm_id,
+                "within_500m_buffer": bool(dist_m <= corridor_buf_m),
+            }
+
+        ev = _evidence(track, idx_start, idx_end)
+        ev.update(
+            {
+                "radial_z": round(radial_z, 3),
+                "z_east": round(z_e, 3),
+                "z_north": round(z_n, 3),
+                "nll": round(nll, 4),
+                "dt_s": round(dt_s, 1),
+                "dv_kn": round(dv_kn, 3),
+                "prev_lon": round(float(f_start["lon"]), 6),
+                "prev_lat": round(float(f_start["lat"]), 6),
+                "v_east_before": round(v_east0, 3),
+                "v_north_before": round(v_north0, 3),
+                "pred_dv_east": round(mu_e, 4),
+                "pred_dv_north": round(mu_n, 4),
+                "actual_dv_east": round(actual_dv_east, 4),
+                "actual_dv_north": round(actual_dv_north, 4),
+                "prev_dv_east": round(prev_dv_east, 4),
+                "prev_dv_north": round(prev_dv_north, 4),
+                "is_maneuver_vessel": round(is_maneuver, 1),
+                "flow_dv_east": round(flow_dv_east, 4),
+                "flow_dv_north": round(flow_dv_north, 4),
+                "has_flow": bool(has_flow),
+                "std_east": round(std_e, 4),
+                "std_north": round(std_n, 4),
+                "sog_before_kn": round(sog_before, 2),
+                "sog_after_kn": round(sog_after, 2),
+                "forcing_source": f_src,
+                "model_name": model_name,
+                "window": {
+                    "t_start_ms": f_start["ts"],
+                    "t_end_ms": f_end["ts"],
+                    "dt_s": round(dt_s, 1),
+                },
+            }
+        )
+        if corridor_ev:
+            ev.update(corridor_ev)
+        score = min(1.0, radial_z / (2.0 * z_thresh))
+        candidates.append((radial_z, f_end, ev, score, kept_idx_end, max(0.0, sog_before - sog_after)))
+
+    if len(candidates) < min_hits:
+        return []
+
+    candidates.sort(key=lambda item: -item[0])
+    peak_rz, peak_fix, peak_ev, peak_score, peak_kept_idx, peak_braking_kn = candidates[0]
+    peak_ev["anomaly_steps_in_track"] = len(candidates)
+
+    tier2_model = motion.load_anchor_tier2_safe(anchor_weights_path)
+    if tier2_model is not None:
+        lo = max(0, peak_kept_idx - 3)
+        hi = min(len(kept), peak_kept_idx + 4)
+        crab_diffs: List[float] = []
+        for _, w_fix in kept[lo:hi]:
+            hdg_raw = w_fix.get("heading")
+            cog_raw = w_fix.get("cog")
+            if hdg_raw is None or cog_raw is None:
+                continue
+            try:
+                h_val = float(hdg_raw)
+                c_val = float(cog_raw)
+            except (TypeError, ValueError):
+                continue
+            if not (math.isfinite(h_val) and math.isfinite(c_val)):
+                continue
+            if h_val < 0.0 or h_val >= 360.0 or c_val < 0.0 or c_val >= 360.0:
+                continue
+            crab_diffs.append(_signed_diff(h_val, c_val))
+
+        if crab_diffs:
+            crab_deg: Optional[float] = float(statistics.median(abs(d) for d in crab_diffs))
+            pos_cnt = sum(1 for d in crab_diffs if d > 0.0)
+            neg_cnt = sum(1 for d in crab_diffs if d < 0.0)
+            crab_sign_consistency = max(pos_cnt, neg_cnt) / float(len(crab_diffs))
+        else:
+            crab_deg = None
+            crab_sign_consistency = 0.0
+
+        depth_m: Optional[float] = None
+        if depth_grid is not None:
+            raw_depth = None
+            if hasattr(depth_grid, "sample"):
+                raw_depth = depth_grid.sample(peak_fix["lon"], peak_fix["lat"])
+            elif hasattr(depth_grid, "depth_at"):
+                raw_depth = depth_grid.depth_at(peak_fix["lon"], peak_fix["lat"])
+            if raw_depth is not None:
+                try:
+                    d_val = float(raw_depth)
+                    if math.isfinite(d_val):
+                        depth_m = d_val
+                except (TypeError, ValueError):
+                    depth_m = None
+
+        if depth_m is None:
+            seabed_reachable = 0.5
+        elif 10.0 <= depth_m <= 110.0:
+            seabed_reachable = 1.0
+        elif 110.0 < depth_m <= 120.0:
+            seabed_reachable = (120.0 - depth_m) / 10.0
+        else:
+            seabed_reachable = 0.0
+
+        t2_feats = {
+            "peak_radial_z_capped": min(float(peak_rz), 50.0),
+            "braking_kn": float(peak_braking_kn),
+            "unilateral_crab_deg": crab_deg if crab_deg is not None else 0.0,
+            "crab_sign_consistency": crab_sign_consistency,
+            "seabed_reachable": seabed_reachable,
+        }
+        t2_prob, t2_band = motion.score_anchor_drag(t2_feats, tier2_model)
+        peak_ev["anchor_drag_prob"] = round(t2_prob, 3)
+        peak_ev["anchor_drag_band"] = t2_band
+        peak_ev["anchor_drag_crab_deg"] = round(crab_deg, 1) if crab_deg is not None else None
+        peak_ev["anchor_drag_depth_m"] = round(depth_m, 1) if depth_m is not None else None
+        peak_ev["anchor_drag_source"] = "physics-sim-tier2"
+
+    return [("IND-08", peak_fix, peak_ev, peak_score)]
+
+
 # ------------------------------------------------------------------- motor
 
 def run(tracks, corridor_idx, depth_grid, coverage, dataset_end_ms,
         port_mask=None, th=None, vessels=None, enabled=None, coast_idx=None,
-        aoi=None):
+        aoi=None, forcing=None):
     """Devuelve (alerts, stats). alerts = lista de dicts listos para GeoJSON."""
     th = th or THRESHOLDS
     enabled = enabled or set(JUSTIFICATION)
@@ -845,6 +1536,9 @@ def run(tracks, corridor_idx, depth_grid, coverage, dataset_end_ms,
                       ("IND-03", th["loiter_window_s"])):
         st["eligible_tracks"][key] = sum(
             1 for t in tracks.values() if _windows(t, span, th["max_gap_s"]))
+    st["eligible_tracks"]["IND-08"] = sum(
+        1 for t in tracks.values() if len(t) >= 3
+    )
 
     # IND-06 es por PAREJAS: se calcula una vez sobre todo el conjunto y se
     # reparte por buque antes del bucle.
@@ -856,6 +1550,7 @@ def run(tracks, corridor_idx, depth_grid, coverage, dataset_end_ms,
             pairwise.setdefault(mmsi, []).append(hit)
 
     for mmsi, track in tracks.items():
+        meta = vessels.get(mmsi, {})
         hits = list(pairwise.get(mmsi, ()))
         if "IND-01" in enabled:
             hits += ind01_slow_on_corridor(track, corridor_idx, th,
@@ -874,10 +1569,15 @@ def run(tracks, corridor_idx, depth_grid, coverage, dataset_end_ms,
         if "IND-05" in enabled:
             hits += ind05_corridor_depth(track, corridor_idx, depth_grid, th,
                                          port_mask=port_mask, counters=st)
+        if "IND-08" in enabled:
+            hits += ind08_motion_anomaly(track, th, corridor_idx=corridor_idx,
+                                         forcing=forcing, counters=st,
+                                         port_mask=port_mask, vessels=vessels,
+                                         ship_type=meta.get("shipType"),
+                                         depth_grid=depth_grid)
         if not hits:
             continue
         st["tracks_with_alert"] += 1
-        meta = vessels.get(mmsi, {})
         composite = sum(th["weights"].get(k, 0.0) * min(1.0, max(0.0, s))
                         for k, _, _, s in hits)
         for key, fix, ev, score in hits:

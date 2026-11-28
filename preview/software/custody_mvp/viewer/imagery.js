@@ -101,11 +101,20 @@ function viewAreaKm2() {
 /* -------------------------------------------------- catalogo por vista */
 function imgSearch(cfg) {
   var b = map.getBounds();
-  var at = imgCursorMs();
+  /* Cuantizar bbox y tiempo para que dos encuadres vecinos acierten en la
+   * cache de disco (/cache/stac) en vez de fallar el 100 % de las veces. */
+  var snap = 0.5;
+  var qbox = [
+    Math.floor(b.getWest() / snap) * snap,
+    Math.floor(b.getSouth() / snap) * snap,
+    Math.ceil(b.getEast() / snap) * snap,
+    Math.ceil(b.getNorth() / snap) * snap
+  ];
+  var at = Math.round(imgCursorMs() / 3600e3) * 3600e3;
   var half = (cfg.follow ? cfg.maxAgeDays : cfg.maxAgeDays * 3) * 86400e3;
   var body = {
     collections: [cfg.coll],
-    bbox: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+    bbox: qbox,
     datetime: new Date(at - half).toISOString() + '/' + new Date(at + half).toISOString(),
     /* Cuantas escenas hacen falta depende del tamanyo de la vista: una franja
      * Sentinel-1 cubre ~250 km, asi que el Baltico entero necesita cientos.
@@ -373,7 +382,7 @@ function mosaicTemplate(cfg) {
  * A z5 no falla, pero tarda tanto que la primera impresion es un mosaico
  * roto. Por eso el suelo es 6 y no 5, y por eso la capa AVISA en el mapa en
  * vez de quedarse en negro: ver imgZoomHint(). */
-var MOSAIC_DROP_BELOW = 6;
+var MOSAIC_DROP_BELOW = 7;
 
 /* UNA CAPA ENCENDIDA QUE NO PINTA TIENE QUE DECIRLO DONDE SE MIRA.
  *
@@ -417,6 +426,7 @@ function mosaicApply(cfg) {
        * hasta donde hay teselas y deja que Leaflet reescale las de z8 al
        * alejarse, que es justo lo que se quiere: no quedarse en negro. */
       minNativeZoom: MOSAIC_MINZOOM, maxZoom: 15, crossOrigin: true,
+      keepBuffer: 1, updateWhenZooming: false, updateWhenIdle: true,
       zIndex: cfg.id === 's2' ? 20 : 200,
       attribution: cfg.label + ' mosaic via Microsoft Planetary Computer · ' +
                    'Contains modified Copernicus Sentinel data'
@@ -481,9 +491,11 @@ function imgRefresh(cfg) {
    *       sobre el momento, que es justo lo que no puede pasar aqui. */
   if (!cfg.follow) {
     sceneLayersRemove(cfg);
-    /* El catalogo se sigue pidiendo: alimenta los carriles de la linea de
-     * tiempo y el recorte de los popups. */
-    return imgSearch(cfg).then(function () { return mosaicApply(cfg); });
+    /* En modo mosaico el servidor compone las escenas por su cuenta y los
+     * carriles/recortes ya leen window.PASSES (loadPassCatalogue): lanzar
+     * imgSearch() en cada desplazamiento o zoom solo bloqueaba el hilo y
+     * enviaba decenas de busquedas STAC innecesarias. */
+    return mosaicApply(cfg);
   }
   mosaicRemove(cfg);
   return imgSearch(cfg).then(function () {
