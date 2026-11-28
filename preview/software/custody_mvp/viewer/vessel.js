@@ -75,6 +75,66 @@ function shipIcon(headingDeg, color, size, dim) {
   });
 }
 
+/* Marcador vectorial sobre el <canvas> compartido de Leaflet: dibuja la misma
+ * flecha rotada que shipIcon sin crear >1.000 nodos <svg> en el DOM en cada
+ * paso del cursor o sondeo en vivo. Si no hay L.Canvas (tests sin navegador),
+ * cae limpiamente a L.marker + shipIcon. */
+var ShipCanvasMarker = null;
+if (typeof L !== 'undefined' && L.CircleMarker && L.Canvas && L.Canvas.prototype) {
+  L.Canvas.prototype._updateShipMarker = function (layer) {
+    if (!this._drawing || layer._empty()) { return; }
+    var p = layer._point, ctx = this._ctx;
+    var rot = layer.options.heading;
+    var s = (layer.options.iconSizePx || 17) / 24;
+    if (rot === null || rot === undefined || rot >= 360) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(Math.round(5 * s), 3), 0, Math.PI * 2, false);
+      this._fillStroke(ctx, layer);
+      return;
+    }
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(rot * Math.PI / 180);
+    ctx.beginPath();
+    ctx.moveTo(0, -10 * s);
+    ctx.lineTo(7 * s, 9 * s);
+    ctx.lineTo(0, 4.5 * s);
+    ctx.lineTo(-7 * s, 9 * s);
+    ctx.closePath();
+    this._fillStroke(ctx, layer);
+    ctx.restore();
+  };
+  ShipCanvasMarker = L.CircleMarker.extend({
+    _updatePath: function () {
+      if (this._renderer && this._renderer._updateShipMarker) {
+        this._renderer._updateShipMarker(this);
+      } else if (this._renderer && this._renderer._updateCircle) {
+        this._renderer._updateCircle(this);
+      }
+    }
+  });
+}
+
+function createShipMarker(latlng, headingDeg, color, size, dim) {
+  var rot = (headingDeg === null || headingDeg === undefined || headingDeg >= 360) ? null : headingDeg;
+  var s = size || 18;
+  if (ShipCanvasMarker) {
+    return new ShipCanvasMarker(latlng, {
+      radius: Math.ceil(s / 2) + 2,
+      heading: rot,
+      iconSizePx: s,
+      color: '#06101a',
+      weight: 1.4,
+      lineJoin: 'round',
+      opacity: dim ? 0.5 : 1,
+      fill: true,
+      fillColor: color,
+      fillOpacity: dim ? 0.5 : 0.95
+    });
+  }
+  return L.marker(latlng, { icon: shipIcon(rot, color, s, dim) });
+}
+
 function headingOf(p) {
   if (p.heading_deg !== null && p.heading_deg !== undefined && p.heading_deg < 360) {
     return p.heading_deg;
@@ -258,7 +318,7 @@ function animMarker(brg) {
  * mismo paso, empuja el cursor global, asi que TODO el mapa se mueve con el.
  * El empuje va frenado: el cometa corre a 60 fps y redibujar la instantanea
  * son ~1.300 marcadores, que a esa cadencia haria la animacion inutil. */
-var ANIM_PUSH_MS = 150;
+var ANIM_PUSH_MS = 250;
 
 function animateTrack(pts, ms, loop) {
   stopAnim();

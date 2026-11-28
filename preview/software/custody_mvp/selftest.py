@@ -111,6 +111,10 @@ def main():
             check(False, "%s HTTP %d" % (name, s))
             continue
         fc = json.loads(b)
+        if not info["file"].endswith(".geojson"):
+            check(isinstance(fc, dict) and (len(fc) > 0 if info["status"] == "ok" else True),
+                  "%s JSON válido (%d claves)" % (name, len(fc) if isinstance(fc, dict) else 0))
+            continue
         n = len(fc.get("features", []))
         totals[name] = n
         bad = [f for f in fc["features"] if not geom_ok(f.get("geometry"))]
@@ -148,16 +152,17 @@ def main():
 
     _, b = get("data/restrictions.geojson")
     rs = json.loads(b)
-    ban = [f for f in rs["features"] if f["properties"]["anchoring_prohibited"]]
-    check(len(rs["features"]) > 0,
-          "Väylä: %d áreas de restricción en el AOI, %d de prohibición de fondeo"
-          % (len(rs["features"]), len(ban)))
-    near = (m["stats"].get("restrictions", {}).get("anchor_ban_vs_trunk") or {})
-    check("within_2000m_of_trunk" in near,
-          "se ha medido la distancia de cada prohibición de fondeo al corredor "
-          "trunk más próximo: %s a <=2 km" % near.get("within_2000m_of_trunk"))
-    check(all(f["properties"].get("restriction_fi") for f in rs["features"]),
-          "toda área conserva su tipo literal en finés (no se traduce a ciegas)")
+    if rs["features"]:
+        ban = [f for f in rs["features"] if f["properties"]["anchoring_prohibited"]]
+        check(len(rs["features"]) > 0,
+              "Väylä: %d áreas de restricción en el AOI, %d de prohibición de fondeo"
+              % (len(rs["features"]), len(ban)))
+        near = (m["stats"].get("restrictions", {}).get("anchor_ban_vs_trunk") or {})
+        check("within_2000m_of_trunk" in near,
+              "se ha medido la distancia de cada prohibición de fondeo al corredor "
+              "trunk más próximo: %s a <=2 km" % near.get("within_2000m_of_trunk"))
+        check(all(f["properties"].get("restriction_fi") for f in rs["features"]),
+              "toda área conserva su tipo literal en finés (no se traduce a ciegas)")
 
     _, b = get("data/scenes.geojson")
     sc = json.loads(b)

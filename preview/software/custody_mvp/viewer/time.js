@@ -205,45 +205,53 @@ function inWindow(at) {
 function snapshotAt(at) {
   var out = [];
   Object.keys(HIST).forEach(function (m) {
-    var pts = HIST[m].pts, last = null;
-    for (var i = 0; i < pts.length; i += 1) {
-      if (pts[i].t <= at) { last = pts[i]; } else { break; }
+    var pts = HIST[m].pts, n = pts.length;
+    if (!n || pts[0].t > at) { return; }
+    var lo = 0, hi = n - 1;
+    while (lo < hi) {
+      var mid = (lo + hi + 1) >> 1;
+      if (pts[mid].t <= at) { lo = mid; } else { hi = mid - 1; }
     }
-    if (last) { out.push({ mmsi: m, meta: HIST[m], fix: last, age: at - last.t }); }
+    var last = pts[lo];
+    out.push({ mmsi: m, meta: HIST[m], fix: last, age: at - last.t });
   });
   return out;
 }
 
+function snapshotPopupHtml(r, stale) {
+  return '<h4>' + esc(r.meta.name || ('MMSI ' + r.mmsi)) + '</h4>' +
+    '<div class="note">MMSI ' + esc(r.mmsi) + ' · ' +
+      esc(shipTypeText(r.meta.ship_type) || '') + '</div>' +
+    '<div class="row"><span class="k">fix</span><span>' + fmtUTC(r.fix.t) + '</span></div>' +
+    '<div class="row"><span class="k">age at cursor</span><span>' +
+      (stale ? '<span class="empty">' + fmtDur(r.age) + '</span>' : fmtDur(r.age)) +
+      '</span></div>' +
+    '<div class="row"><span class="k">SOG</span><span>' +
+      (r.fix.sog === null || r.fix.sog === undefined ? '-' : r.fix.sog + ' kn') + '</span></div>' +
+    vesselCard(r.mmsi, r.meta.name, r.meta.ship_type, r.fix.lon, r.fix.lat,
+               { sog_kn: r.fix.sog, heading_deg: r.fix.hdg });
+}
+
 function drawSnapshot(at) {
   if (snapLayer) { map.removeLayer(snapLayer); }
-  /* Sin guardas: esta ES la vista de buques. Hubo un momento con tres capas
-   * compitiendo y esta funcion tenia que preguntar si le tocaba; ya no hay
-   * con quien competir. */
+  /* Sin guardas: esta ES la vista de buques. Los marcadores van al <canvas>
+   * (createShipMarker) y el HTML del popup se construye perezosamente solo al
+   * pulsar un buque, evitando >1.000 nodos <svg> y >1.000 fichas HTML por
+   * movimiento del cursor. */
   var rows = snapshotAt(at).filter(function (r) { return visibleOnMap(r.mmsi); });
   var fresh = 0;
   snapLayer = L.layerGroup();
   rows.forEach(function (r) {
     var stale = r.age > TIME.staleMs;
     if (!stale) { fresh += 1; }
-    var mk = L.marker([r.fix.lat, r.fix.lon], {
-      icon: shipIcon(r.fix.hdg === undefined ? null : r.fix.hdg,
-                     stale ? '#44596d' : '#58d68d', stale ? 12 : 17, stale)
-    }).bindPopup(
-      '<h4>' + esc(r.meta.name || ('MMSI ' + r.mmsi)) + '</h4>' +
-      '<div class="note">MMSI ' + esc(r.mmsi) + ' · ' +
-        esc(shipTypeText(r.meta.ship_type) || '') + '</div>' +
-      '<div class="row"><span class="k">fix</span><span>' + fmtUTC(r.fix.t) + '</span></div>' +
-      '<div class="row"><span class="k">age at cursor</span><span>' +
-        (stale ? '<span class="empty">' + fmtDur(r.age) + '</span>' : fmtDur(r.age)) +
-        '</span></div>' +
-      '<div class="row"><span class="k">SOG</span><span>' +
-        (r.fix.sog === null || r.fix.sog === undefined ? '-' : r.fix.sog + ' kn') + '</span></div>' +
-      /* Sin boton al final: vesselCard ya abre con «Vessel situation», que
-       * hace lo mismo y mas. Dos botones para la misma accion, uno arriba y
-       * otro al fondo de una ficha con scroll, solo obligan a decidir. */
-      vesselCard(r.mmsi, r.meta.name, r.meta.ship_type, r.fix.lon, r.fix.lat,
-                 { sog_kn: r.fix.sog, heading_deg: r.fix.hdg }), { maxWidth: 330 }
-    );
+    var hdg = r.fix.hdg === undefined ? null : r.fix.hdg;
+    var mk = (window.createShipMarker
+      ? createShipMarker([r.fix.lat, r.fix.lon], hdg,
+                         stale ? '#44596d' : '#58d68d', stale ? 12 : 17, stale)
+      : L.marker([r.fix.lat, r.fix.lon], {
+          icon: shipIcon(hdg, stale ? '#44596d' : '#58d68d', stale ? 12 : 17, stale)
+        })
+    ).bindPopup(function () { return snapshotPopupHtml(r, stale); }, { maxWidth: 330 });
     mk._mkProps = { sog: r.fix.sog, heading: r.fix.hdg, mmsi: r.mmsi, stale: stale };
     mk.addTo(snapLayer);
   });

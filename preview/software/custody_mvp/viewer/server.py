@@ -631,6 +631,13 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._fail(502, str(exc)[:200])
             return self._send(raw, ct, "HIT" if hit else "MISS")
 
+        if u.path.startswith("/data/") and u.path.endswith((".json", ".geojson")):
+            fpath = self.translate_path(u.path)
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as fh:
+                    raw = fh.read()
+                return self._send(raw, "application/json")
+
         return super().do_GET()
 
     # ----------------------------------------------------------------- POST

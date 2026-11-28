@@ -243,6 +243,193 @@ def main():
     check(not indicators.ind06_encounters({111111111: A, 222222222: B5}, TH),
           "no dispara si uno declara navStat=1 (at anchor)")
 
+    print("\nIND-08 anomalía cinemática aprendida (Gaussian MLP)")
+    step_lon_11kn = (11.0 * (90.0 / 3600.0)) / 30.0
+    tr_steady = [fix(i, 25.0 + i * step_lon_11kn, 60.0, sog=11.0, cog=90.0, dt_s=90)
+                 for i in range(8)]
+    check(not indicators.ind08_motion_anomaly(tr_steady, TH),
+          "no dispara en tránsito rectilíneo a velocidad constante (11,0 kn, dt=90 s)")
+
+    tr_drag = list(tr_steady[:5])
+    f4 = tr_drag[-1]
+    dlon_d1 = (8.8 * (90.0 / 3600.0)) / 30.0
+    dlat_d1 = (1.2 * (90.0 / 3600.0)) / 60.0
+    f5 = fix(5, f4["lon"] + dlon_d1, f4["lat"] + dlat_d1, sog=8.88, cog=82.2, dt_s=90)
+    tr_drag.append(f5)
+    dlon_d2 = (6.8 * (90.0 / 3600.0)) / 30.0
+    dlat_d2 = (-1.1 * (90.0 / 3600.0)) / 60.0
+    f6 = fix(6, f5["lon"] + dlon_d2, f5["lat"] + dlat_d2, sog=6.89, cog=99.2, dt_s=90)
+    tr_drag.append(f6)
+    hits8 = indicators.ind08_motion_anomaly(tr_drag, TH)
+    check(len(hits8) == 1,
+          "dispara con inicio multipaso de arrastre de ancla (2 pasos de frenada/deriva)")
+    if hits8:
+        ev8 = hits8[0][2]
+        check(ev8["radial_z"] > 2.448 and ev8["forcing_source"] == "none",
+              "radial_z=%.2f > 2,448 y forcing_source='%s'"
+              % (ev8["radial_z"], ev8["forcing_source"]))
+        check(ev8["dv_kn"] >= 2.0 and ev8["dt_s"] == 90.0 and ev8["anomaly_steps_in_track"] >= 2,
+              "evidencia cinemática coherente (|Δv|=%.2f kn, dt=%.0f s, steps=%d, nll=%.3f)"
+              % (ev8["dv_kn"], ev8["dt_s"], ev8["anomaly_steps_in_track"], ev8["nll"]))
+        check("prev_dv_east" in ev8 and "prev_dv_north" in ev8 and ev8.get("is_maneuver_vessel") == 0.0,
+              "incluye prev_dv_east/north causales e is_maneuver_vessel=0.0 por defecto")
+        check(isinstance(ev8.get("has_flow"), bool),
+              "incluye bandera booleana has_flow en evidence (%s)" % ev8.get("has_flow"))
+    tr_lane = [dict(f, lat=f["lat"] - 0.25) for f in tr_drag]  # lat ~59,75 N (canal principal GoF)
+    hits8_lane = indicators.ind08_motion_anomaly(tr_lane, TH)
+    check(len(hits8_lane) == 1 and hits8_lane[0][2].get("has_flow") is True,
+          "activa has_flow=True sobre el canal de tráfico del golfo de Finlandia (59,75 N)")
+    hits8_ferry = indicators.ind08_motion_anomaly(tr_drag, TH, ship_type=60)
+    check(len(hits8_ferry) == 1 and hits8_ferry[0][2].get("is_maneuver_vessel") == 1.0,
+          "mapea ship_type=60 (pasaje/ferry) a is_maneuver_vessel=1.0")
+
+    hits8_corr = indicators.ind08_motion_anomaly(tr_drag, TH, corridor_idx=idx)
+    check(len(hits8_corr) == 1 and hits8_corr[0][2].get("dist_m", 99999) <= 5000.0
+          and hits8_corr[0][2].get("corridor") == "TEST-CABLE",
+          "dispara a <= 5 km del corredor submarino (dist_m=%.1f m, corridor=%s)"
+          % (hits8_corr[0][2].get("dist_m", -1.0) if hits8_corr else -1.0,
+             hits8_corr[0][2].get("corridor") if hits8_corr else None))
+    tr_drag_far = [dict(f, lat=f["lat"] + 0.10) for f in tr_drag]  # ~11,1 km al norte (> 5 km)
+    cnt_far8 = {}
+    hits8_far = indicators.ind08_motion_anomaly(tr_drag_far, TH, corridor_idx=idx, counters=cnt_far8)
+    check(hits8_far == [] and cnt_far8.get("off_corridor_suppressed_IND-08", 0) >= 1,
+          "suprime anomalías a > 5 km de cualquier cable y contabiliza off_corridor_suppressed_IND-08")
+
+    prev_w = os.environ.get("CUSTODY_PATHS_WEIGHTS")
+    try:
+        os.environ["CUSTODY_PATHS_WEIGHTS"] = "/nonexistent.json"
+        cnt8 = {}
+        hits8_missing = indicators.ind08_motion_anomaly(tr_drag, TH, counters=cnt8)
+        check(hits8_missing == [] and cnt8.get("model_unavailable_IND-08") == 1,
+              "degrada a 0 alertas sin excepción cuando CUSTODY_PATHS_WEIGHTS=/nonexistent.json")
+    finally:
+        if prev_w is None:
+            os.environ.pop("CUSTODY_PATHS_WEIGHTS", None)
+        else:
+            os.environ["CUSTODY_PATHS_WEIGHTS"] = prev_w
+
+    import json as _json
+    import tempfile as _tempfile
+    from custody import motion as _motion
+    corrupt_payloads = [
+        {"feature_names": [], "scaler": None, "layers": []},
+        {
+            "feature_names": ["f%d" % i for i in range(8)],
+            "scaler": {"mean": [0.0] * 8, "std": [1.0] * 8},
+            "layers": [{"weight": [[1.0, 2.0]], "bias": [0.0]}],
+        },
+    ]
+    corrupt_ok = True
+    for cp in corrupt_payloads:
+        with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            _json.dump(cp, tf)
+            tpath = tf.name
+        try:
+            raised_ve = False
+            try:
+                _motion.load_model(tpath, refresh=True)
+            except ValueError:
+                raised_ve = True
+            cnt_c = {}
+            res_c = indicators.ind08_motion_anomaly(tr_drag, TH, counters=cnt_c, weights_path=tpath)
+            if not (raised_ve and res_c == [] and cnt_c.get("model_unavailable_IND-08") == 1):
+                corrupt_ok = False
+        finally:
+            try:
+                os.unlink(tpath)
+            except OSError:
+                pass
+    check(corrupt_ok, "degrada a 0 alertas sin excepción ante JSON de pesos corrupto o capas mal formadas")
+
+    tr_malformed = [
+        dict(tr_steady[0], cog=float("nan")),
+        dict(tr_steady[0]),  # dt=0 duplicado
+        dict(tr_steady[1], sog=None),
+        dict(tr_steady[2], ts=float("inf")),
+        dict(tr_steady[3], lon=float("nan")),
+        dict(tr_steady[4], cog=float("nan"), sog=2.01),
+        dict(tr_steady[4], ts=tr_steady[4]["ts"] + 90_000, cog=float("nan"), sog=2.01),
+    ]
+    malformed_ok = True
+    try:
+        res_m = indicators.ind08_motion_anomaly(
+            tr_malformed,
+            TH,
+            forcing={"wind_speed_kn": None, "wind_from_deg": float("nan"), "current_speed_kn": None},
+        )
+        malformed_ok = (res_m == [])
+    except Exception:
+        malformed_ok = False
+    check(malformed_ok, "soporta fixes con cog=NaN, ts=Inf, dt=0, sog=None y forcing nulo sin lanzar excepción")
+
+    pm8 = geo.PolygonMask()
+    pm8.add_circle(f5["lon"], f5["lat"], 5000, "Puerto de prueba")
+    cnt_pm8 = {}
+    hits8_pm = indicators.ind08_motion_anomaly(tr_drag, TH, port_mask=pm8, counters=cnt_pm8)
+    check(hits8_pm == [] and cnt_pm8.get("port_mask_suppressed_IND-08", 0) >= 1,
+          "suprime anomalías dentro de port_mask y contabiliza port_mask_suppressed_IND-08")
+
+    tr_jump = list(tr_steady[:4])
+    fj_last = tr_jump[-1]
+    # Salto sub-60s (30 s, ~55 km) seguido de continuación que sin guardia dispararía IND-08
+    f_subjump = dict(fj_last, ts=fj_last["ts"] + 30_000, lon=fj_last["lon"] + 1.0, sog=8.5)
+    f_after1 = dict(fj_last, ts=fj_last["ts"] + 90_000, lon=fj_last["lon"] + 1.005, sog=8.5)
+    f_after2 = dict(fj_last, ts=fj_last["ts"] + 180_000, lon=fj_last["lon"] + 2.0, sog=6.5)
+    tr_jump.extend([f_subjump, f_after1, f_after2])
+    hits7_j = indicators.ind07_impossible_jump(tr_jump, TH)
+    hits8_j = indicators.ind08_motion_anomaly(tr_jump, TH)
+    check(len(hits7_j) == 1 and hits8_j == [],
+          "salto imposible IND-07 (incluso sub-60s) no produce doble disparo en IND-08")
+
+    # Tier-2 Physics-Informed Anchor-Drag Discriminator
+    tr_asym_drag = [
+        dict(f, heading=(float(f["cog"]) + 14.0) % 360.0 if k >= 3 else float(f["cog"]))
+        for k, f in enumerate(tr_drag)
+    ]
+    tr_asym_drag.extend([
+        fix(7, f6["lon"] + dlon_d2 * 0.7, f6["lat"], sog=5.0, cog=90.0, hdg=104.0, dt_s=90),
+        fix(8, f6["lon"] + dlon_d2 * 1.4, f6["lat"], sog=4.5, cog=90.0, hdg=104.0, dt_s=90),
+    ])
+    hits8_asym = indicators.ind08_motion_anomaly(tr_asym_drag, TH, depth_grid=FakeGrid(50.0))
+    check(
+        len(hits8_asym) == 1
+        and hits8_asym[0][2].get("anchor_drag_band") == "HIGH"
+        and float(hits8_asym[0][2].get("anchor_drag_prob", 0.0)) >= 0.70
+        and hits8_asym[0][2].get("anchor_drag_depth_m") == 50.0
+        and hits8_asym[0][2].get("anchor_drag_source") == "physics-sim-tier2",
+        "Tier-2 puntúa HIGH (>=0,70) en arrastre asimétrico sobre fondo de 50 m (prob=%s, crab=%s°)"
+        % (hits8_asym[0][2].get("anchor_drag_prob") if hits8_asym else None,
+           hits8_asym[0][2].get("anchor_drag_crab_deg") if hits8_asym else None),
+    )
+
+    tr_sym_slow = [dict(f, heading=float(f["cog"])) for f in tr_drag]
+    hits8_sym = indicators.ind08_motion_anomaly(tr_sym_slow, TH, depth_grid=FakeGrid(50.0))
+    asym_p = float(hits8_asym[0][2]["anchor_drag_prob"]) if hits8_asym else 1.0
+    sym_p = float(hits8_sym[0][2]["anchor_drag_prob"]) if hits8_sym else 1.0
+    check(
+        len(hits8_sym) == 1
+        and sym_p < asym_p - 0.4
+        and hits8_sym[0][2].get("anchor_drag_band") == "LOW",
+        "Tier-2 puntúa mucho más bajo en desaceleración simétrica HDG==COG (prob=%.3f vs %.3f, band=%s)"
+        % (sym_p, asym_p, hits8_sym[0][2].get("anchor_drag_band") if hits8_sym else None),
+    )
+
+    prev_t2 = os.environ.get("CUSTODY_PATHS_ANCHOR_WEIGHTS")
+    try:
+        os.environ["CUSTODY_PATHS_ANCHOR_WEIGHTS"] = "/nonexistent.json"
+        hits8_not2 = indicators.ind08_motion_anomaly(tr_asym_drag, TH, depth_grid=FakeGrid(50.0))
+        check(
+            len(hits8_not2) == 1
+            and "anchor_drag_prob" not in hits8_not2[0][2]
+            and "anchor_drag_band" not in hits8_not2[0][2],
+            "IND-08 degrada limpiamente sin campos Tier-2 cuando CUSTODY_PATHS_ANCHOR_WEIGHTS=/nonexistent.json",
+        )
+    finally:
+        if prev_t2 is None:
+            os.environ.pop("CUSTODY_PATHS_ANCHOR_WEIGHTS", None)
+        else:
+            os.environ["CUSTODY_PATHS_ANCHOR_WEIGHTS"] = prev_t2
+
     print("\nGeometría")
     d, _ = idx.nearest(25.3, 60.0)
     check(d is not None and d < 5.0, "distancia al corredor en su propia línea: %.1f m" % d)

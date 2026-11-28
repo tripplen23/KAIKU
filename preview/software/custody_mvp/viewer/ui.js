@@ -158,7 +158,7 @@ function renderLearn() {
   var h = '<div class="block note-box"><p>' + t('learn_intro') + '</p></div>';
 
   h += '<h3>' + t('indicators_h') + '</h3>';
-  ['IND-01', 'IND-02', 'IND-03', 'IND-04', 'IND-05', 'IND-06', 'IND-07'].forEach(function (k) {
+  ['IND-01', 'IND-02', 'IND-03', 'IND-04', 'IND-05', 'IND-06', 'IND-07', 'IND-08'].forEach(function (k) {
     var ex = explainFor(k); if (!ex) { return; }
     h += '<details><summary><span class="badge">' + k + '</span>' + ex.title +
       '</summary><div class="inner"><p>' + ex.what + '</p>' +

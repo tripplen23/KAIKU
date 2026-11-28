@@ -47,6 +47,7 @@ L.control.scale({ metric: true, imperial: false, maxWidth: 180,
                   position: 'bottomright' }).addTo(map);
 
 var layers = {};        // nombre -> L.Layer
+var mlOverlayLayer = L.layerGroup();
 var manifest = null;
 var alertFeatures = [];
 
@@ -144,9 +145,9 @@ function addIsobaths(fc) {
     style: function (f) {
       return { color: ISO_COLOR[f.properties.depth_m] || '#2d6689',
                weight: f.properties.depth_m === 100 ? 1.4 : 0.8, fill: false,
-               interactive: false };
+               interactive: false, smoothFactor: 1.5 };
     }
-  }).addTo(map);
+  });
 }
 
 function addCorridorsOther(fcOther) {
@@ -244,10 +245,12 @@ function opsBounds() {
   var b = { score: 0, dist: 0, dur: 0, depth: 0 };
   all.forEach(function (f) {
     var p = f.properties, e = p.evidence || {};
+    var dm = (e.min_distance_m !== undefined && e.min_distance_m !== null) ? e.min_distance_m : e.dist_m;
+    var dp = (e.depth_m !== undefined && e.depth_m !== null) ? e.depth_m : e.anchor_drag_depth_m;
     b.score = Math.max(b.score, p.composite_score || 0);
-    if (e.min_distance_m) { b.dist = Math.max(b.dist, e.min_distance_m); }
+    if (dm) { b.dist = Math.max(b.dist, dm); }
     if (e.duration_s) { b.dur = Math.max(b.dur, e.duration_s / 60); }
-    if (e.depth_m) { b.depth = Math.max(b.depth, e.depth_m); }
+    if (dp) { b.depth = Math.max(b.depth, dp); }
   });
   b.score = Math.ceil(b.score * 100) / 100 || 1;
   b.dist = Math.ceil(b.dist / 100) * 100 || 5000;
@@ -267,12 +270,14 @@ function opsPass(f) {
   if (OPS.inds[p.indicator] === false) { return false; }
   if (OPS.sevs[severityOf(p)] === false) { return false; }
   if (OPS.hideSvc && p.service_craft_declared) { return false; }
-  if (OPS.maxDistM !== null && e.min_distance_m !== undefined &&
-      e.min_distance_m !== null && e.min_distance_m > OPS.maxDistM) { return false; }
+  var dm = (e.min_distance_m !== undefined && e.min_distance_m !== null) ? e.min_distance_m : e.dist_m;
+  if (OPS.maxDistM !== null && dm !== undefined &&
+      dm !== null && dm > OPS.maxDistM) { return false; }
   if (OPS.minDurMin > 0 && e.duration_s !== undefined && e.duration_s !== null &&
       e.duration_s / 60 < OPS.minDurMin) { return false; }
-  if (OPS.maxDepthM !== null && e.depth_m !== undefined && e.depth_m !== null &&
-      e.depth_m > OPS.maxDepthM) { return false; }
+  var dp = (e.depth_m !== undefined && e.depth_m !== null) ? e.depth_m : e.anchor_drag_depth_m;
+  if (OPS.maxDepthM !== null && dp !== undefined && dp !== null &&
+      dp > OPS.maxDepthM) { return false; }
   return true;
 }
 
@@ -452,7 +457,16 @@ function refreshAlertViews() {
         return L.circleMarker(ll, { radius: radius, color: sevRing(p), weight: 2,
           fillColor: sevColour(p), fillOpacity: 0.45 });
       },
-      onEachFeature: function (f, l) { l.bindPopup(alertPopup(f.properties), { maxWidth: 300 }); }
+      onEachFeature: function (f, l) {
+        l.bindPopup(alertPopup(f.properties), { maxWidth: 300 });
+        l.on('click', function () {
+          if (f.properties && f.properties.indicator === 'IND-08') {
+            showDetail(f);
+          } else {
+            clearMlOverlay();
+          }
+        });
+      }
     }).addTo(map);
   };
   layers.alerts = mk2('alert', 10);
@@ -594,8 +608,9 @@ function alertPopup(p) {
    * y se salia de la pantalla. */
   var ex = explainFor(p.indicator);
   var e = p.evidence || {};
+  var dm = (e.min_distance_m !== undefined && e.min_distance_m !== null) ? e.min_distance_m : e.dist_m;
   var bits = [];
-  if (e.corridor) { bits.push(esc(e.corridor) + ' @ ' + Math.round(e.min_distance_m) + ' m'); }
+  if (e.corridor && dm !== undefined && dm !== null) { bits.push(esc(e.corridor) + ' @ ' + Math.round(dm) + ' m'); }
   if (e.depth_m !== undefined && e.depth_m !== null) { bits.push(e.depth_m + ' m'); }
   if (e.duration_s) { bits.push(Math.round(e.duration_s / 60) + ' min'); }
   var g = gfwMatch(p.mmsi, p.ts_ms);
@@ -636,9 +651,10 @@ function fusionRows(p, e) {
       v: t('fus_sanction_v', { l: s0.list }),
       src: 'AIS (Fintraffic) × ' + s0.list });
   }
-  if (e.corridor) {
+  var dm = (e.min_distance_m !== undefined && e.min_distance_m !== null) ? e.min_distance_m : e.dist_m;
+  if (e.corridor && dm !== undefined && dm !== null) {
     rows.push({ k: 'fus_corridor',
-      v: t('fus_corridor_v', { c: e.corridor, m: Math.round(e.min_distance_m) }),
+      v: t('fus_corridor_v', { c: e.corridor, m: Math.round(dm) }),
       src: 'AIS (Fintraffic) × OpenStreetMap' });
   }
   if (e.depth_m !== undefined && e.depth_m !== null) {
@@ -750,8 +766,278 @@ function renderForcing(p) {
   });
 }
 
+function clearMlOverlay() {
+  if (!mlOverlayLayer) { return; }
+  if (typeof mlOverlayLayer.clearLayers === 'function') {
+    mlOverlayLayer.clearLayers();
+  }
+  if (map && map.hasLayer && map.hasLayer(mlOverlayLayer)) {
+    map.removeLayer(mlOverlayLayer);
+  }
+  mlOverlayLayer = L.layerGroup();
+}
+
+function renderMlOverlay(p) {
+  clearMlOverlay();
+  if (!p || p.indicator !== 'IND-08') { return false; }
+  var e = p.evidence || {};
+  var act_lat = Number(p.lat);
+  var act_lon = Number(p.lon);
+  if (!Number.isFinite(act_lat) || !Number.isFinite(act_lon)) { return false; }
+
+  var dt_s = Number(e.dt_s) || 60.0;
+  var hours = dt_s / 3600.0;
+  var v_east_before = Number(e.v_east_before || 0);
+  var v_north_before = Number(e.v_north_before || 0);
+  var pred_dv_east = Number(e.pred_dv_east || 0);
+  var pred_dv_north = Number(e.pred_dv_north || 0);
+  var std_east = Number(e.std_east || 0);
+  var std_north = Number(e.std_north || 0);
+
+  var prev_lat = (e.prev_lat !== undefined && e.prev_lat !== null) ? Number(e.prev_lat) : NaN;
+  var prev_lon = (e.prev_lon !== undefined && e.prev_lon !== null) ? Number(e.prev_lon) : NaN;
+  if (!Number.isFinite(prev_lat) || !Number.isFinite(prev_lon)) {
+    var act_v_e = v_east_before + Number(e.actual_dv_east || 0);
+    var act_v_n = v_north_before + Number(e.actual_dv_north || 0);
+    var cosAct = Math.max(0.05, Math.cos(act_lat * Math.PI / 180.0));
+    prev_lat = act_lat - (act_v_n * hours) / 60.0;
+    prev_lon = act_lon - (act_v_e * hours) / (60.0 * cosAct);
+  }
+
+  var cosPrev = Math.max(0.05, Math.cos(prev_lat * Math.PI / 180.0));
+  var pred_v_e = v_east_before + pred_dv_east;
+  var pred_v_n = v_north_before + pred_dv_north;
+  var dlat = (pred_v_n * hours) / 60.0;
+  var dlon = (pred_v_e * hours) / (60.0 * cosPrev);
+  var pred_lat = prev_lat + dlat;
+  var pred_lon = prev_lon + dlon;
+
+  /* 1. 95% CI 2D Ellipse centered at (pred_lat, pred_lon), 48 vertices */
+  var rx_nm = Math.max(0.025, 2.4477 * std_east * hours);
+  var ry_nm = Math.max(0.025, 2.4477 * std_north * hours);
+  var cosPred = Math.max(0.05, Math.cos(pred_lat * Math.PI / 180.0));
+  var rx_deg = rx_nm / (60.0 * cosPred);
+  var ry_deg = ry_nm / 60.0;
+  var ellipsePts = [];
+  for (var k = 0; k < 48; k += 1) {
+    var theta = (2.0 * Math.PI * k) / 48.0;
+    ellipsePts.push([
+      pred_lat + ry_deg * Math.sin(theta),
+      pred_lon + rx_deg * Math.cos(theta)
+    ]);
+  }
+  var polyFn = L.polygon ? L.polygon : L.polyline;
+  polyFn(ellipsePts, {
+    color: '#00e5a0', weight: 6, opacity: 0.20,
+    fill: false, interactive: false
+  }).addTo(mlOverlayLayer);
+  var ciPoly = polyFn(ellipsePts, {
+    color: '#00e5a0', weight: 2.2, opacity: 0.95,
+    dashArray: '6 4', fillColor: '#00e5a0', fillOpacity: 0.18
+  }).addTo(mlOverlayLayer);
+
+  /* Helper: geographic bearing in degrees [0, 360) and directional arrowheads */
+  function stepBearingDeg(lat0, lon0, lat1, lon1) {
+    var cosLat = Math.max(0.05, Math.cos(0.5 * (lat0 + lat1) * Math.PI / 180.0));
+    var dE = (lon1 - lon0) * cosLat;
+    var dN = lat1 - lat0;
+    if (Math.abs(dE) < 1e-9 && Math.abs(dN) < 1e-9) { return null; }
+    return (Math.atan2(dE, dN) * 180.0 / Math.PI + 360.0) % 360.0;
+  }
+  function addTrajectoryArrow(lat0, lon0, lat1, lon1, color, frac) {
+    var brg = stepBearingDeg(lat0, lon0, lat1, lon1);
+    if (brg === null) { return; }
+    var f = (frac !== undefined && frac !== null) ? frac : 0.72;
+    var aLat = lat0 + (lat1 - lat0) * f;
+    var aLon = lon0 + (lon1 - lon0) * f;
+    L.marker([aLat, aLon], {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'ml-arrow-mk',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+        html: '<svg viewBox="0 0 14 14" width="14" height="14" style="transform:rotate(' +
+              brg.toFixed(1) + 'deg);display:block">' +
+              '<path d="M7 1 L12.5 12 L7 9.2 L1.5 12 Z" fill="' + color +
+              '" stroke="#06101a" stroke-width="1.2" stroke-linejoin="round"/></svg>'
+      })
+    }).addTo(mlOverlayLayer);
+  }
+
+  /* 2. Expected trajectory line + arrowheads + Start (-{dt_s}s) + ML Expected */
+  var dtTxt = Math.round(dt_s);
+  var startLbl = 'Start (-' + dtTxt + 's)';
+  L.polyline([[prev_lat, prev_lon], [pred_lat, pred_lon]], {
+    color: '#00e5a0', weight: 2.5, opacity: 0.95, dashArray: '6 4'
+  }).addTo(mlOverlayLayer);
+  addTrajectoryArrow(prev_lat, prev_lon, pred_lat, pred_lon, '#00e5a0', 0.55);
+  addTrajectoryArrow(prev_lat, prev_lon, pred_lat, pred_lon, '#00e5a0', 0.85);
+  var startDot = L.circleMarker([prev_lat, prev_lon], {
+    radius: 4.5, color: '#e3ecf4', weight: 2,
+    fillColor: '#0b1016', fillOpacity: 1
+  }).addTo(mlOverlayLayer);
+  if (typeof startDot.bindTooltip === 'function') {
+    startDot.bindTooltip(startLbl, { direction: 'left', offset: [-6, 0] });
+  }
+  L.marker([prev_lat, prev_lon], {
+    interactive: false,
+    icon: L.divIcon({
+      className: 'rtag ml-start-lbl',
+      iconSize: null,
+      iconAnchor: [8, -8],
+      html: esc(startLbl)
+    })
+  }).addTo(mlOverlayLayer);
+  var expDot = L.circleMarker([pred_lat, pred_lon], {
+    radius: 5.5, color: '#05291e', weight: 2,
+    fillColor: '#00e5a0', fillOpacity: 1
+  }).addTo(mlOverlayLayer);
+  if (typeof expDot.bindTooltip === 'function') {
+    expDot.bindTooltip('ML Expected', { direction: 'top', offset: [0, -10] });
+  }
+  var expAnchorX = (pred_lon >= act_lon) ? -12 : 76;
+  var expAnchorY = (pred_lat >= act_lat) ? 22 : -10;
+  L.marker([pred_lat, pred_lon], {
+    interactive: false,
+    icon: L.divIcon({
+      className: 'rtag ml-exp-lbl',
+      iconSize: null,
+      iconAnchor: [expAnchorX, expAnchorY],
+      html: 'ML Expected'
+    })
+  }).addTo(mlOverlayLayer);
+
+  /* 3. Actual trajectory line (solid amber/white + arrowheads) & Deviation Vector (crimson dashed) */
+  L.polyline([[prev_lat, prev_lon], [act_lat, act_lon]], {
+    color: '#ffd166', weight: 6, opacity: 0.22, interactive: false
+  }).addTo(mlOverlayLayer);
+  L.polyline([[prev_lat, prev_lon], [act_lat, act_lon]], {
+    color: '#ffd166', weight: 3, opacity: 0.95
+  }).addTo(mlOverlayLayer);
+  addTrajectoryArrow(prev_lat, prev_lon, act_lat, act_lon, '#ffd166', 0.55);
+  addTrajectoryArrow(prev_lat, prev_lon, act_lat, act_lon, '#ffd166', 0.85);
+
+  L.polyline([[pred_lat, pred_lon], [act_lat, act_lon]], {
+    color: '#ff2a4b', weight: 8, opacity: 0.28, interactive: false
+  }).addTo(mlOverlayLayer);
+  L.polyline([[pred_lat, pred_lon], [act_lat, act_lon]], {
+    color: '#ff2a4b', weight: 3.2, opacity: 1.0, dashArray: '7 5'
+  }).addTo(mlOverlayLayer);
+
+  var actualBrg = stepBearingDeg(prev_lat, prev_lon, act_lat, act_lon);
+  var shipRot = 0;
+  if (p.heading_deg !== null && p.heading_deg !== undefined &&
+      Number.isFinite(Number(p.heading_deg)) && Number(p.heading_deg) >= 0 && Number(p.heading_deg) < 360) {
+    shipRot = Number(p.heading_deg);
+  } else if (p.cog_deg !== null && p.cog_deg !== undefined &&
+             Number.isFinite(Number(p.cog_deg)) && Number(p.cog_deg) >= 0 && Number(p.cog_deg) < 360) {
+    shipRot = Number(p.cog_deg);
+  } else if (actualBrg !== null) {
+    shipRot = actualBrg;
+  }
+  L.marker([act_lat, act_lon], {
+    interactive: false,
+    icon: L.divIcon({
+      className: 'ml-pulse-mk',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+      html: '<span class="ml-pulse-ring"></span>' +
+            '<svg class="ml-ship-svg" viewBox="0 0 24 24" width="22" height="22" style="transform:rotate(' +
+            shipRot.toFixed(1) + 'deg)">' +
+            '<path d="M12 2 L19.5 21 L12 16.2 L4.5 21 Z" fill="#ff2a4b" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>' +
+            '</svg>'
+    })
+  }).addTo(mlOverlayLayer);
+
+  /* 4. Crisp permanent map badge/tooltip */
+  var rz = Number(e.radial_z || 0);
+  var dv = Number(e.dv_kn || 0);
+  var devLine = 'Deviation: ' + rz.toFixed(1) + '\u03c3 (|\u0394v| = ' +
+                dv.toFixed(2) + ' kn in ' + dtTxt + 's)';
+  var midLat = 0.5 * (pred_lat + act_lat);
+  var midLon = 0.5 * (pred_lon + act_lon);
+  L.marker([midLat, midLon], {
+    interactive: false,
+    icon: L.divIcon({
+      className: 'rtag ml-badge',
+      iconSize: null,
+      iconAnchor: [0, -10],
+      html: '<div class="ml-b-hdr">ML 95% CI Expected vs Actual</div>' +
+            '<div class="ml-b-dev">' + esc(devLine) + '</div>'
+    })
+  }).addTo(mlOverlayLayer);
+
+  mlOverlayLayer.addTo(map);
+  if (typeof ciPoly.bringToFront === 'function') { ciPoly.bringToFront(); }
+
+  /* 5. Auto-zoom cleanly */
+  var allPts = ellipsePts.concat([
+    [prev_lat, prev_lon],
+    [pred_lat, pred_lon],
+    [act_lat, act_lon]
+  ]);
+  var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  allPts.forEach(function (pt) {
+    if (pt[0] < minLat) { minLat = pt[0]; }
+    if (pt[0] > maxLat) { maxLat = pt[0]; }
+    if (pt[1] < minLon) { minLon = pt[1]; }
+    if (pt[1] > maxLon) { maxLon = pt[1]; }
+  });
+  var padLat = Math.max(0.0015, (maxLat - minLat) * 0.35);
+  var padLon = Math.max(0.0025, (maxLon - minLon) * 0.35);
+  map.fitBounds(
+    [[minLat - padLat, minLon - padLon], [maxLat + padLat, maxLon + padLon]],
+    { padding: [60, 60], maxZoom: 14 }
+  );
+  return true;
+}
+
+function mlDetailBlock(p, e) {
+  if (!p || p.indicator !== 'IND-08') { return ''; }
+  var rz = Number(e.radial_z || 0).toFixed(1);
+  var dv = Number(e.dv_kn || 0).toFixed(2);
+  var dtTxt = Math.round(Number(e.dt_s) || 60);
+  var sb = Number(e.sog_before_kn || 0).toFixed(1);
+  var sa = Number(e.sog_after_kn || 0).toFixed(1);
+  var modeTxt = e.has_flow ? 'Flow-aware' : 'Kinematic fallback';
+  var tier2Html = '';
+  if (e.anchor_drag_prob != null) {
+    var band = String(e.anchor_drag_band || 'LOW');
+    var pct = Math.round(Number(e.anchor_drag_prob) * 100);
+    var col = band === 'HIGH' ? '#ff2a4b' : (band === 'MODERATE' ? '#ffb02e' : '#6fb3c8');
+    var parts = [];
+    if (e.anchor_drag_crab_deg != null) {
+      parts.push('crab ' + Number(e.anchor_drag_crab_deg).toFixed(1) + '\u00b0');
+    }
+    if (e.anchor_drag_depth_m != null) {
+      parts.push(Math.round(Number(e.anchor_drag_depth_m)) + ' m');
+    }
+    if (band === 'LOW') { parts.push('likely slowdown/turn'); }
+    var noteTxt = parts.length ? ' \u00b7 ' + parts.join(' \u00b7 ') : '';
+    tier2Html = '<div class="row"><span class="k"><i class="ml-leg-dot" style="background:' + col + '"></i>Anchor-Drag Signature</span>' +
+      '<span style="color:' + col + ';font-weight:600">' + esc(band) + ' (' + pct + '% \u00b7 physics-sim)' +
+      (noteTxt ? '<span style="color:var(--dim);font-weight:400">' + esc(noteTxt) + '</span>' : '') +
+      '</span></div>';
+  }
+  return '<div class="block ml-card"><h4>&#9678; ML 95% CI Prediction vs. Actual Reality</h4>' +
+    '<div class="row"><span class="k"><i class="ml-leg-dot" style="background:#00e5a0"></i>ML Expected</span>' +
+      '<span>MLP v3 (14\u219264\u219264\u21924) \u00b7 ' + modeTxt + '</span></div>' +
+    '<div class="row"><span class="k"><i class="ml-leg-dot" style="background:#ffd166"></i>Actual Step (' + dtTxt + 's)</span>' +
+      '<span>' + sb + ' &rarr; ' + sa + ' kn</span></div>' +
+    '<div class="row"><span class="k"><i class="ml-leg-dot" style="background:#ff2a4b"></i>ML Residual Surprise</span>' +
+      '<span class="empty"><b>' + rz + '\u03c3</b> (|\u0394v| = ' + dv + ' kn)</span></div>' +
+    tier2Html +
+    '</div>';
+}
+
 function showDetail(f) {
-  var p = f.properties, e = p.evidence || {};
+  if (!f) { return; }
+  var p = f.properties || f, e = p.evidence || {};
+  var feat = f.properties ? f : {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    properties: p
+  };
   var ex = explainFor(p.indicator);
   var note = nameNote(p.name);
   var stype = shipTypeText(p.ship_type);
@@ -767,6 +1053,7 @@ function showDetail(f) {
         ? '<button class="btn primary js-vessel" data-mmsi="' + esc(p.mmsi) + '">' +
           esc(t('vessel_situation')) + ' &rarr;</button>' : '') +
     '</div>' +
+    mlDetailBlock(p, e) +
     /* El recorte satelital es la respuesta a «¿se ve de verdad ese barco?».
      * Va arriba porque es lo que decide si la alerta vale algo. */
     (window.chipHtml ? chipHtml(p.lon, p.lat, p.ts_ms, 's1') : '') +
@@ -842,13 +1129,19 @@ function showDetail(f) {
   /* Se pasa la alerta entera, no solo el MMSI: el panel del buque tiene que
    * poder decir de que alerta viene y pintarse de su color. */
   box.querySelectorAll('.js-vessel').forEach(function (b) {
-    b.addEventListener('click', function () { showVessel(b.dataset.mmsi, undefined, f); });
+    b.addEventListener('click', function () {
+      clearMlOverlay();
+      showVessel(b.dataset.mmsi, undefined, feat);
+    });
   });
   document.getElementById('d-back').addEventListener('click', hideDetail);
   document.getElementById('d-map').addEventListener('click', function () {
-    var ll = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+    if (p.indicator === 'IND-08' && renderMlOverlay(p)) { return; }
+    var ll = [feat.geometry.coordinates[1], feat.geometry.coordinates[0]];
     map.setView(ll, 12);
   });
+  if (p.indicator === 'IND-08') { renderMlOverlay(p); }
+  else { clearMlOverlay(); }
   if (p.indicator === 'IND-02') { renderForcing(p); }
   if (window.onAlertInspected) { window.onAlertInspected(p); }
 }
@@ -862,7 +1155,10 @@ map.on('popupopen', function (e) {
     });
   });
   el.querySelectorAll('.js-vessel').forEach(function (b) {
-    b.addEventListener('click', function () { showVessel(b.dataset.mmsi, undefined, null); });
+    b.addEventListener('click', function () {
+      clearMlOverlay();
+      showVessel(b.dataset.mmsi, undefined, null);
+    });
   });
   /* Mostrar/ocultar la traza sin salir del popup: la accion mas pedida no
    * deberia exigir abrir el panel lateral. */
@@ -885,10 +1181,13 @@ window.rerenderAlerts = function () {
 };
 
 function hideDetail() {
+  clearMlOverlay();
   var box = document.getElementById('detail');
   box.classList.remove('on'); box.innerHTML = '';
   document.getElementById('list-view').style.display = '';
 }
+var closeDetail = hideDetail;
+window.closeDetail = hideDetail;
 
 function openDetailByMmsi(mmsi, ind) {
   for (var i = 0; i < alertFeatures.length; i += 1) {
@@ -909,7 +1208,16 @@ function addAlerts(fc) {
         return L.circleMarker(ll, { radius: radius, color: sevRing(p), weight: 2,
           fillColor: sevColour(p), fillOpacity: 0.45 });
       },
-      onEachFeature: function (f, l) { l.bindPopup(alertPopup(f.properties), { maxWidth: 340 }); }
+      onEachFeature: function (f, l) {
+        l.bindPopup(alertPopup(f.properties), { maxWidth: 340 });
+        l.on('click', function () {
+          if (f.properties && f.properties.indicator === 'IND-08') {
+            showDetail(f);
+          } else {
+            clearMlOverlay();
+          }
+        });
+      }
     });
   }
   layers.alerts = mk('alert', 10).addTo(map);
@@ -1738,6 +2046,10 @@ function showTab(name, fromRail) {
    * umbrales a Filters. El enlace antiguo sigue llevando a algun sitio. */
   if (name === 'status') { name = 'sources'; }
   if (!document.getElementById('tab-' + name)) { return; }
+  var dBox = document.getElementById('detail');
+  if (name !== 'alerts' || (dBox && dBox.innerHTML && dBox.innerHTML.indexOf('id="v-back"') >= 0)) {
+    clearMlOverlay();
+  }
   if (fromRail && name === CUR_TAB && !panelCollapsed()) { setPanel(false); return; }
   CUR_TAB = name;
   setPanel(true);
@@ -1981,7 +2293,9 @@ loadDepth().then(function () { return j('data/manifest.json'); }).then(function 
   jobs.forEach(function (x) {
     window.LAZY_JOBS[x[0]] = function () { return lazyLoad(x[0], x[1].file, x[2]); };
   });
-  prefetchIdle(jobs.map(function (x) { return window.LAZY_JOBS[x[0]]; }));
+  /* No precargar 11 MB de GeoJSON en el hilo principal nada mas abrir:
+   * bindLayerRows ya descarga cada capa bajo demanda con barra de progreso
+   * en cuanto el operador marca su casilla en Layers. */
 }).catch(function (e) {
   document.getElementById('alert-list').innerHTML =
     '<div class="empty">Load failed: ' + esc(e.message) +

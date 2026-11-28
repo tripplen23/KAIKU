@@ -25,7 +25,8 @@
  */
 'use strict';
 
-var COAST = { layer: null, cells: {}, on: false, pend: 0, err: null };
+var COAST = { layer: null, cells: {}, polys: {}, active: {}, on: false,
+              pend: 0, err: null };
 
 var COAST_URL = 'https://maps.helcom.fi/arcgis/rest/services/MADS/Background/' +
                 'MapServer/13/query';
@@ -76,9 +77,25 @@ function coastCells(b, z) {
   return out;
 }
 
-function coastFetchCell(c) {
-  var key = c[0] + ',' + c[1] + ',' + c[2] + ',' + c[3];
-  if (COAST.cells[key]) { return Promise.resolve(); }
+function coastKey(c, minKm) {
+  return c[0] + ',' + c[1] + ',' + c[2] + ',' + c[3] + ',' + minKm;
+}
+
+function coastAttach(key) {
+  var poly = COAST.polys[key];
+  if (!poly || poly === 'empty' || !COAST.layer || COAST.active[key]) { return; }
+  poly.addTo(COAST.layer);
+  COAST.active[key] = poly;
+}
+
+function coastFetchCell(c, minKm) {
+  if (minKm === undefined) { minKm = coastMinKm(map.getZoom()); }
+  var key = coastKey(c, minKm);
+  if (COAST.cells[key] === 'done') {
+    coastAttach(key);
+    return Promise.resolve();
+  }
+  if (COAST.cells[key] === 'loading') { return Promise.resolve(); }
   COAST.cells[key] = 'loading';
   var url = COAST_URL + '?' + [
     'geometry=' + [c[0], c[1], c[0] + c[3], c[1] + c[3]].join(','),
@@ -91,28 +108,24 @@ function coastFetchCell(c) {
   COAST.pend += 1;
   return fetch(via).then(function (r) { return r.json(); }).then(function (d) {
     if (d.error) { throw new Error(d.error.message || 'ArcGIS'); }
-    /* Filtrar islotes AQUI, no solo en el build. Un cuadro de 4 grados trae
-     * 7.667 polilineas y casi todas son rocas de doscientos metros: pintarlas
-     * a zoom 5 son decenas de miles de objetos Leaflet para dibujar algo mas
-     * pequeno que un pixel. El corte escala con el zoom. */
-    var minKm = coastMinKm(map.getZoom());
-    var lines = [];
+    /* Filtrar islotes AQUI, no solo en el build, y agrupar todas las lineas de
+     * la celda en UNA sola multipolilinea de Leaflet en vez de miles de capas
+     * sueltas. Al cambiar de zoom, coastRefresh retira las celdas de otras
+     * resoluciones para no apilar 500.000 vertices en el mismo canvas. */
+    var rings = [];
     (d.features || []).forEach(function (f) {
-      var keep = f.geometry.paths.filter(function (p) {
-        return p.length > 1 && pathKm(p) >= minKm;
+      ((f.geometry && f.geometry.paths) || []).forEach(function (p) {
+        if (p.length > 1 && pathKm(p) >= minKm) {
+          rings.push(p.map(function (q) { return [q[1], q[0]]; }));
+        }
       });
-      if (keep.length) {
-        lines.push(keep.map(function (p) {
-          return p.map(function (q) { return [q[1], q[0]]; });
-        }));
-      }
     });
     COAST.cells[key] = 'done';
-    if (!COAST.layer) { return; }
-    lines.forEach(function (paths) {
-      L.polyline(paths, { color: '#7fa6c4', weight: 1, opacity: 0.85,
-                          interactive: false }).addTo(COAST.layer);
-    });
+    COAST.polys[key] = rings.length
+      ? L.polyline(rings, { color: '#7fa6c4', weight: 1, opacity: 0.85,
+                            interactive: false, smoothFactor: 1.5 })
+      : 'empty';
+    if (COAST.on && COAST.want && COAST.want[key]) { coastAttach(key); }
   }).catch(function (e) {
     COAST.cells[key] = null;           /* se podra reintentar */
     COAST.err = e.message;
@@ -126,6 +139,7 @@ function coastRefresh() {
   if (!COAST.on) { return; }
   var z = map.getZoom();
   if (z < COAST_MIN_ZOOM) { coastStatus(); return; }
+  var minKm = coastMinKm(z);
   var cells = coastCells(map.getBounds(), z);
   /* Del CENTRO hacia fuera. Antes se cortaba la lista en orden de
    * generacion, que es suroeste primero: a zoom 5 eso pedia doce cuadros de
@@ -137,9 +151,20 @@ function coastRefresh() {
     var db = Math.pow(b[0] + b[3] / 2 - c.lng, 2) + Math.pow(b[1] + b[3] / 2 - c.lat, 2);
     return da - db;
   });
+  var want = {};
+  cells.forEach(function (cell) { want[coastKey(cell, minKm)] = 1; });
+  COAST.want = want;
+  if (COAST.layer && COAST.layer.removeLayer) {
+    Object.keys(COAST.active).forEach(function (k) {
+      if (!want[k]) {
+        COAST.layer.removeLayer(COAST.active[k]);
+        delete COAST.active[k];
+      }
+    });
+  }
   /* Un techo por movimiento: alejarse de golpe no puede disparar doscientas
    * peticiones. Si falta algo, el siguiente movimiento lo trae. */
-  cells.slice(0, 12).forEach(coastFetchCell);
+  cells.slice(0, 12).forEach(function (cell) { coastFetchCell(cell, minKm); });
   coastStatus();
 }
 

@@ -29,6 +29,8 @@ DEFAULTS = {
     "aoi": {"bbox": [9.0, 53.5, 30.5, 66.0], "name": "Baltic Sea"},
     "paths": {"cache": "cache", "data": "viewer/data",
               "record": "~/ais_data", "secrets": "secrets.env",
+              "weights": "custody/weights/ship_motion_mlp.json",
+              "anchor_weights": "custody/weights/anchor_drag_tier2.json",
               "record_extra": [], "record_watch": []},
     "cache": {"ttl_stac": 21600, "ttl_geo": 2592000, "ttl_tile": 0},
     "build": {"depth_step": 0.03, "viewer_depth_step": 0.06,
@@ -45,7 +47,7 @@ def _load():
     for sec in cfg:
         for key in list(cfg[sec]):
             env = os.environ.get("CUSTODY_%s_%s" % (sec.upper(), key.upper()))
-            if env is None:
+            if not env:
                 continue
             cur = cfg[sec][key]
             if isinstance(cur, bool):
@@ -175,6 +177,22 @@ def stray_records():
 
 def secrets():
     return abspath(CFG["paths"]["secrets"])
+
+
+def weights() -> str:
+    """Ruta al fichero JSON de pesos del modelo MLP de movimiento (IND-08)."""
+    env = os.environ.get("CUSTODY_PATHS_WEIGHTS")
+    if env:
+        return abspath(env)
+    return abspath(CFG["paths"]["weights"])
+
+
+def anchor_weights() -> str:
+    """Ruta al fichero JSON de pesos del discriminador Tier-2 de arrastre de ancla (IND-08)."""
+    env = os.environ.get("CUSTODY_PATHS_ANCHOR_WEIGHTS")
+    if env:
+        return abspath(env)
+    return abspath(CFG["paths"]["anchor_weights"])
 
 
 def aoi():

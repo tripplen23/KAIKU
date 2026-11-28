@@ -82,9 +82,11 @@ function fetchLiveAlerts(cycle) {
     if (cycle && cycle.window_h) { LIVEAL.winH = cycle.window_h; }
     if (cycle && cycle.trigger) { LIVEAL.trigger = cycle.trigger; }
 
-    var viejas = LIVEAL.buildOnly.filter(function (f) {
-      return (f.properties.ts_ms || 0) < LIVEAL.winStart;
-    });
+    var viejas = LIVEAL.winStart
+      ? LIVEAL.buildOnly.filter(function (f) {
+          return (f.properties.ts_ms || 0) < LIVEAL.winStart;
+        })
+      : LIVEAL.buildOnly.slice();
     feats.forEach(function (f) { f.properties.live = true; });
     alertFeatures = viejas.concat(feats);
 

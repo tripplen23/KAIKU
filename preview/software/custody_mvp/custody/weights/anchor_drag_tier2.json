@@ -1,0 +1,132 @@
+{
+  "model_name": "AnchorDragTier2LogReg",
+  "provenance": "physics-sim-tier2 (3-DOF Fossen + Catenary, 3 hull classes)",
+  "feature_names": [
+    "peak_radial_z_capped",
+    "braking_kn",
+    "unilateral_crab_deg",
+    "crab_sign_consistency",
+    "seabed_reachable"
+  ],
+  "scaler": {
+    "mean": [
+      7.87052003,
+      0.85174286,
+      5.58952381,
+      0.80935828,
+      0.86138262
+    ],
+    "std": [
+      5.8496186,
+      0.67036515,
+      5.54198003,
+      0.19581964,
+      0.33226131
+    ]
+  },
+  "weights": [
+    0.71811134,
+    0.6000964,
+    3.94219067,
+    0.51515624,
+    1.69358476
+  ],
+  "bias": -1.11405951,
+  "thresholds": {
+    "high": 0.7,
+    "moderate": 0.35
+  },
+  "self_check_vectors": [
+    {
+      "regime": "normal",
+      "hull_class": "aframax_tanker",
+      "features": [
+        6.051441,
+        0.27,
+        3.6,
+        0.5,
+        1.0
+      ],
+      "expected_prob": 0.03290579650614411,
+      "expected_band": "LOW"
+    },
+    {
+      "regime": "normal",
+      "hull_class": "mariner_cargo",
+      "features": [
+        1.547888,
+        0.11,
+        0.4,
+        0.714286,
+        0.562999
+      ],
+      "expected_prob": 0.00032978933535312817,
+      "expected_band": "LOW"
+    },
+    {
+      "regime": "benign_slowdown",
+      "hull_class": "mariner_cargo",
+      "features": [
+        2.651478,
+        1.39,
+        4.4,
+        0.571429,
+        1.0
+      ],
+      "expected_prob": 0.11522419014873077,
+      "expected_band": "LOW"
+    },
+    {
+      "regime": "benign_slowdown",
+      "hull_class": "coastal_feeder",
+      "features": [
+        2.752524,
+        0.95,
+        3.5,
+        0.714286,
+        1.0
+      ],
+      "expected_prob": 0.06390592098798432,
+      "expected_band": "LOW"
+    },
+    {
+      "regime": "anchor_drag",
+      "hull_class": "mariner_cargo",
+      "features": [
+        9.608061,
+        1.65,
+        10.2,
+        1.0,
+        1.0
+      ],
+      "expected_prob": 0.9866328313491681,
+      "expected_band": "HIGH"
+    },
+    {
+      "regime": "anchor_drag",
+      "hull_class": "coastal_feeder",
+      "features": [
+        5.093157,
+        1.68,
+        19.7,
+        1.0,
+        1.0
+      ],
+      "expected_prob": 0.9999733248574504,
+      "expected_band": "HIGH"
+    },
+    {
+      "regime": "normal",
+      "hull_class": "aframax_tanker",
+      "features": [
+        1.655661,
+        0.12,
+        0.3,
+        0.857143,
+        0.0
+      ],
+      "expected_prob": 2.5944042583007752e-05,
+      "expected_band": "LOW"
+    }
+  ]
+}

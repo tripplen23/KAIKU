@@ -68,7 +68,9 @@ var PORTS = [
   ['DEKEL', 'Kiel',            10.140, 54.330, ['KIEL', 'DE KEL']],
   ['DEHAM', 'Hamburg',          9.950, 53.540, ['HAMBURG', 'DE HAM']],
   ['NLRTM', 'Rotterdam',        4.400, 51.920, ['ROTTERDAM', 'NL RTM']],
-  ['BEANR', 'Antwerp',          4.330, 51.280, ['ANTWERP', 'ANTWERPEN', 'BE ANR']]
+  ['BEANR', 'Antwerp',          4.330, 51.280, ['ANTWERP', 'ANTWERPEN', 'BE ANR']],
+  ['DKSKA', 'Skagen',          10.590, 57.720, ['SKAGEN', 'SKAW', 'DK SKA']],
+  ['EGPSD', 'Port Said',       32.310, 31.260, ['PORT SAID', 'EG PSD']]
 ];
 
 /* Textos que NO son un destino y conviene no intentar resolver. */
